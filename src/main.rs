@@ -1,3 +1,5 @@
+use crate::cart::Cart;
+use crate::cpu::Cpu;
 use eframe::egui;
 use egui::{ColorImage, TextureOptions};
 use std::{
@@ -8,6 +10,9 @@ use std::{
 };
 use system::BackendCmd;
 
+mod cart;
+mod cpu;
+mod io;
 mod system;
 fn main() -> Result<(), eframe::Error> {
     //println!("Hello, world!");
@@ -49,12 +54,21 @@ impl App {
         let (front_cmd_tx, front_cmd_rx) = channel();
         let (back_cmd_tx, back_cmd_rx) = channel();
 
+        let cpu = cpu::Cpu::new().unwrap();
+        let cart = Cart::new(&mut std::fs::File::open("../roms/test_rom.gb").unwrap()).unwrap();
+        let io = io::Io::new();
+        let boot_room = include_bytes!("../dmg.bin").to_vec();
+
         let mut sys = system::System::new(
             log_tx,
             screen_tx,
             front_cmd_tx,
             back_cmd_rx,
             repaint_frontend_callback,
+            cpu,
+            cart,
+            io,
+            boot_room.try_into().unwrap(),
         );
         let system_handle = std::thread::spawn(move || sys.run());
 
