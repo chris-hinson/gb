@@ -20,13 +20,18 @@ struct Comms {
     repaint_frontend_callback: Box<dyn Fn() + Send>,
 }
 
+#[derive(PartialEq)]
+pub enum BackendCmd {
+    Shutdown,
+}
+
 //this represents our entire GB system, both physical hardware units, as well as frontend communications abstractions
 pub struct System {
     comms: Comms,
     cpu: Cpu,
     cart: Cart,
     io: Io,
-    boot_rom: [u8; 0xFF],
+    boot_rom: [u8; 0x100],
 }
 
 impl System {
@@ -39,7 +44,7 @@ impl System {
         cpu: Cpu,
         cart: Cart,
         io: Io,
-        boot_rom: [u8; 0xFF],
+        boot_rom: [u8; 0x100],
     ) -> Self {
         Self {
             comms: Comms {
@@ -72,39 +77,21 @@ impl System {
                 }
             }
 
-            //generate a log
-            /*let cur = self.startup.elapsed().as_secs();
-            if cur % 2 == 0 && ((cur / 2) != last_sent) {
-                println!(
-                    "sending {cur}, new last_sent is {}, which is not equal to {last_sent}",
-                    cur / 5
-                );
-                self.log_tx.send(cur.to_string()).unwrap();
-                last_sent = cur / 2;
-                self.repaint_frontend_callback.as_mut()();
-            }
+            //fetch the opcode
+            let op = self.read(self.cpu.rf.PC, 1).unwrap()[0];
+            self.execute_op(op);
 
-            //scramble some pixels
-            let x = rand.gen_range(0..160);
-            let y = rand.gen_range(0..144);
-
-            let r = rand.gen_range(0..0xff);
-            let g = rand.gen_range(0..0xff);
-            let b = rand.gen_range(0..0xff);
-
-            let indx = (y * 3) * 160 + (x * 3);
-            self.screen_data[indx] = r;
-            self.screen_data[indx + 1] = g;
-            self.screen_data[indx + 2] = b;
-
-            self.screen_tx.send(self.screen_data.clone()).unwrap();*/
+            //execute the opcode
         }
     }
 }
 
-#[derive(PartialEq)]
-pub enum BackendCmd {
-    Shutdown,
+impl System {
+    pub fn execute_op(&mut self, opcode: u8) {
+        match opcode {
+            _ => unimplemented!("panicking on unimplemented opcode: {:x}", opcode),
+        }
+    }
 }
 
 //general memory_map

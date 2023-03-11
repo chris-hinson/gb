@@ -2,7 +2,7 @@ use std::fs::File;
 
 use crate::cart::Cart;
 pub struct Cpu {
-    rf: RegisterFile,
+    pub rf: RegisterFile,
 }
 
 impl Cpu {
@@ -23,17 +23,17 @@ SP	    -	-	Stack Pointer
 PC	    -	-	Program Counter/Pointer */
 #[allow(non_snake_case)]
 #[derive(Default)]
-struct RegisterFile {
-    A: u8,
-    F: u8,
-    B: u8,
-    C: u8,
-    D: u8,
-    E: u8,
-    H: u8,
-    L: u8,
-    SP: u16,
-    PC: u16,
+pub struct RegisterFile {
+    pub A: u8,
+    pub F: u8,
+    pub B: u8,
+    pub C: u8,
+    pub D: u8,
+    pub E: u8,
+    pub H: u8,
+    pub L: u8,
+    pub SP: u16,
+    pub PC: u16,
 }
 
 impl RegisterFile {

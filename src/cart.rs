@@ -1,4 +1,5 @@
 use std::{
+    fmt::format,
     fs::{metadata, File},
     io::Read,
 };
@@ -11,7 +12,8 @@ pub struct Cart {
 
 impl Cart {
     pub fn new(rom: &mut std::fs::File) -> Result<Self, std::io::Error> {
-        let mut contents = vec![0; rom.metadata().unwrap().len() as usize];
+        //let mut contents = vec![0; rom.metadata().unwrap().len() as usize];
+        let mut contents = Vec::new();
         rom.read_to_end(&mut contents)?;
 
         let header = CartHeader::new(contents[0x0100..=0x014F].try_into().unwrap())?;
@@ -193,22 +195,22 @@ struct CartHeader {
 }
 
 impl CartHeader {
-    pub fn new(contents: [u8; 0x4F]) -> Result<Self, std::io::Error> {
+    pub fn new(contents: [u8; 0x50]) -> Result<Self, std::io::Error> {
         let header = Self {
             entry_point: contents[0x0100 - 0x0100..=0x0103 - 0x0100]
                 .try_into()
                 .unwrap(),
-            logo: contents[0x0104 - 0x0100..=0x0133 - 0x0100]
+            logo: contents[0x0104 - 0x0100..0x0133 - 0x0100]
                 .try_into()
                 .unwrap(),
-            title: contents[0x0134 - 0x0100..=0x0143 - 0x0100]
+            title: contents[0x0134 - 0x0100..0x0143 - 0x0100]
                 .try_into()
                 .unwrap(),
-            man_code: contents[0x013F - 0x0100..=0x0142 - 0x0100]
+            man_code: contents[0x013F - 0x0100..0x0142 - 0x0100]
                 .try_into()
                 .unwrap(),
             cgb: contents[0x0143 - 0x0100],
-            new_lic_code: contents[0x0144 - 0x0100..=0x0145 - 0x0100]
+            new_lic_code: contents[0x0144 - 0x0100..0x0145 - 0x0100]
                 .try_into()
                 .unwrap(),
             sgb_flag: contents[0x0146 - 0x0100],
@@ -219,18 +221,30 @@ impl CartHeader {
             old_lic_code: contents[0x014B - 0x0100],
             rom_version: contents[0x014C - 0x0100],
             header_checksum: contents[0x014D - 0x0100],
-            global_checksum: contents[0x014E - 0x0100..=0x014F - 0x0100]
+            global_checksum: contents[(0x014E - 0x0100)..=(0x014F - 0x0100)]
                 .try_into()
                 .unwrap(),
         };
+
+        //println!("{:x}", contents[0x014D - 0x0100]);
+
+        /*
+        uint8_t checksum = 0;
+        for (uint16_t address = 0x0134; address <= 0x014C; address++) {
+            checksum = checksum - rom[address] - 1;
+        } */
         let mut checksum: u8 = 0;
         for address in (0x0134 - 0x0100)..=(0x014C - 0x0100) {
-            checksum = checksum - contents[address] - 1;
+            checksum = checksum.wrapping_sub(contents[address]).wrapping_sub(1);
         }
+
         if checksum != header.header_checksum {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::Other,
-                "header checksum failed",
+                format!(
+                    "header checksum failed, got: {:x}, expected: {:x}",
+                    checksum, header.header_checksum,
+                ),
             ));
         }
 

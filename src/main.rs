@@ -55,9 +55,10 @@ impl App {
         let (back_cmd_tx, back_cmd_rx) = channel();
 
         let cpu = cpu::Cpu::new().unwrap();
-        let cart = Cart::new(&mut std::fs::File::open("../roms/test_rom.gb").unwrap()).unwrap();
+        let cart = Cart::new(&mut std::fs::File::open("./roms/test_rom.gb").unwrap()).unwrap();
         let io = io::Io::new();
         let boot_room = include_bytes!("../dmg.bin").to_vec();
+        println!("boot room is : {:x} bytes long", boot_room.len());
 
         let mut sys = system::System::new(
             log_tx,
