@@ -9,23 +9,24 @@ use std::{
 };
 
 #[rustfmt::skip]
+//opcode timings IN T_CYCLES
 static OPCODE_TIMINGS: [usize; 256] = [
 //  0  1  2  3  4  5  6  7  8  9  A  B  C  D  E  F 
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //0x0
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //0x1
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //0x2
+    0, 12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //0x0
+    0, 12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //0x1
+    0, 12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //0x2
     0, 12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //0x3
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //0x4
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //0x5
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //0x6
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //0x7
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //0x8
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //0x9
+    0, 0, 0, 0, 0, 0, 0, 0, 4, 4, 4, 4, 4, 4, 4, 4, //0x9
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //0xA
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //0xB
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //0xC
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //0xD
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //0xE
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8, 0, //0xE
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //0xF
 ];
 
@@ -136,6 +137,8 @@ impl System {
 #[derive(Debug)]
 pub enum ExecutionError {
     UnimplmentedOpcode(usize),
+    IllegalRead(usize),
+    IllegalWrite(usize),
 }
 
 impl std::error::Error for ExecutionError {}
@@ -143,7 +146,13 @@ impl std::fmt::Display for ExecutionError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             ExecutionError::UnimplmentedOpcode(o) => {
-                write!(f, "Error while executing opcode: {:#02X}", o)
+                write!(f, "[Execution error]: unimplemented opcode: {:#02X}", o)
+            }
+            ExecutionError::IllegalRead(a) => {
+                write!(f, "[Execution error]: Illegal read at address: {:#04X}", a)
+            }
+            ExecutionError::IllegalWrite(a) => {
+                write!(f, "[Execution error]: Illegal write at address: {:#04X}", a)
             }
         }
     }
@@ -152,7 +161,8 @@ impl std::fmt::Display for ExecutionError {
 impl System {
     pub fn execute_op(&mut self, opcode: u8) -> Result<usize, ExecutionError> {
         match opcode {
-            0x31 => self.LDSP(opcode),
+            //0x31 => self.LDSP(opcode),
+            0x01 | 0x11 | 0x21 | 0x31 => self.LD16imm(opcode),
             0xA8..=0xAF => self.XOR(opcode),
             _ => {
                 self.comms
@@ -166,7 +176,7 @@ impl System {
 }
 
 impl System {
-    pub fn LDSP(&mut self, opcode: u8) -> Result<usize, ExecutionError> {
+    /*pub fn LDSP(&mut self, opcode: u8) -> Result<usize, ExecutionError> {
         self.cpu.rf.PC += 1;
         let data = self.read(self.cpu.rf.PC, 2).unwrap();
         self.cpu.rf.PC += 2;
@@ -180,7 +190,7 @@ impl System {
             .send(format!("LD SP,{:#04X}", data))
             .unwrap();
         return Ok(OPCODE_TIMINGS[opcode as usize]);
-    }
+    }*/
 
     pub fn XOR(&mut self, opcode: u8) -> Result<usize, ExecutionError> {
         //step past the opcode we fetched
@@ -211,11 +221,20 @@ impl System {
             //(HL)
             //TODO: need to return an error if we read from a bad address
             0xAE => {
-                let data = self.read(self.cpu.rf.HL_read(), 1).unwrap()[0];
+                //let data = self.read(self.cpu.rf.HL_read(), 1).unwrap()[0];
+                let data = self.read(self.cpu.rf.HL_read(), 1)?[0];
+
                 ("XOR (HL)".to_owned(), self.cpu.rf.A ^ data)
             } //return Err(ExecutionError::UnimplmentedOpcode(opcode as usize));
             //A
             0xAF => ("XOR A".to_owned(), self.cpu.rf.A ^ self.cpu.rf.A),
+            //imm
+            0xEE => {
+                let data = self.read(self.cpu.rf.PC, 1)?[0];
+                //dont forget to step another byte since we are using an immeadiate
+                self.cpu.rf.PC += 1;
+                (format!("XOR d8 [{:x}]", data), self.cpu.rf.A ^ data)
+            }
             _ => unreachable!(
                 "panicking in XOR becuase we somehow decided to execute an op that doesnt exist"
             ),
@@ -228,7 +247,46 @@ impl System {
         self.cpu.rf.h_set(false);
         self.cpu.rf.c_set(false);
 
-        return if opcode == 0xAE { Ok(8) } else { Ok(4) };
+        return Ok(OPCODE_TIMINGS[opcode as usize]);
+    }
+
+    pub fn LD16imm(&mut self, opcode: u8) -> Result<usize, ExecutionError> {
+        //step past the opcode we fetched
+        self.cpu.rf.PC += 1;
+
+        let data = self.read(self.cpu.rf.PC, 2)?;
+        //let data: u16 = ((data[0] as u16) << 8) | data[1] as u16;
+        let data: u16 = (data[0] as u16) | ((data[1] as u16) << 8);
+
+        let log = match opcode {
+            //BC
+            0x01 => {
+                self.cpu.rf.BC_write(data);
+                format!("LD BC, {:#04x}", data)
+            }
+            //DE
+            0x11 => {
+                self.cpu.rf.DE_write(data);
+                format!("LD DE, {:#04x}", data)
+            }
+            //HL
+            0x21 => {
+                self.cpu.rf.HL_write(data);
+                format!("LD HL, {:#04x}", data)
+            }
+            //SP
+            0x31 => {
+                self.cpu.rf.SP = data;
+                format!("LD SP, {:#04x}", data)
+            }
+
+            _ => unreachable!("panicking in LD16imm on an unreachable opcode"),
+        };
+        //make sure we step past the data we just read
+        self.cpu.rf.PC += 2;
+
+        self.comms.log_tx.send(log).unwrap();
+        return Ok(OPCODE_TIMINGS[opcode as usize]);
     }
 }
 
@@ -250,7 +308,7 @@ FFFF	FFFF	Interrupt Enable register (IE)	*/
 impl System {
     //TOD: you're gonna need some nuance to support reading across different memory regions.
     //what happens if you read from 0x3FFF with len >1
-    fn read(&mut self, address: u16, len: usize) -> Result<Vec<u8>, std::io::Error> {
+    fn read(&mut self, address: u16, len: usize) -> Result<Vec<u8>, ExecutionError> {
         match address {
             0x0000..=0x3FFF => {
                 if self.io.bootrom_disable == 0 && address < 0x0100 {
@@ -277,7 +335,7 @@ impl System {
         }
     }
 
-    fn write(&mut self, address: u16, data: &[u8]) -> Result<usize, std::io::Error> {
+    fn write(&mut self, address: u16, data: &[u8]) -> Result<usize, ExecutionError> {
         match address {
             0x0000..=0x3FFF => {
                 if self.io.bootrom_disable == 0 && address < 0x0100 {

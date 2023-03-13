@@ -1,3 +1,5 @@
+use crate::system::ExecutionError;
+
 //memory mapped registers/ other assorted IO
 
 /*IO memory map
@@ -26,7 +28,7 @@ impl Io {
         }
     }
 
-    pub fn read(&mut self, address: u16, len: usize) -> Result<Vec<u8>, std::io::Error> {
+    pub fn read(&mut self, address: u16, len: usize) -> Result<Vec<u8>, ExecutionError> {
         match address {
             0xFF00 => unimplemented!("tried to read joypad input"),
             0xFF01..=0xFF02 => unimplemented!("tried to read DMG serial transfer"),
@@ -35,7 +37,12 @@ impl Io {
             0xFF30..=0xFF3F => unimplemented!("tried to read DMG wave pattern"),
             0xFF40..=0xFF4B => unimplemented!("tried to read LCD control stuff"),
             0xFF4F => unimplemented!("tried to read CGB VRAM bank select"),
-            0xFF50 => Ok(vec![self.bootrom_disable]),
+            0xFF50 => {
+                if len > 1 {
+                    return Err(ExecutionError::IllegalRead(address as usize));
+                }
+                Ok(vec![self.bootrom_disable])
+            }
             0xFF51..=0xFF55 => unimplemented!("tried to read CGB VRAM DMA"),
             0xFF68..=0xFF69 => unimplemented!("tried to read CGB BG/OBJ PPalettes"),
             0xFF70 => unimplemented!("tried to read CGB WRAM bank select"),
@@ -43,7 +50,7 @@ impl Io {
         }
     }
 
-    pub fn write(&mut self, address: u16, data: &[u8]) -> Result<usize, std::io::Error> {
+    pub fn write(&mut self, address: u16, data: &[u8]) -> Result<usize, ExecutionError> {
         match address {
             0xFF00 => unimplemented!("tried to read joypad input"),
             0xFF01..=0xFF02 => unimplemented!("tried to read DMG serial transfer"),
@@ -54,10 +61,7 @@ impl Io {
             0xFF4F => unimplemented!("tried to read CGB VRAM bank select"),
             0xFF50 => {
                 if data.len() > 1 {
-                    Err(std::io::Error::new(
-                        std::io::ErrorKind::InvalidData,
-                        "tried to write more than one byte of data into a single byte hardware reg",
-                    ))
+                    Err(ExecutionError::IllegalWrite(address as usize))
                 } else {
                     self.bootrom_disable = data[0];
                     return Ok(1);

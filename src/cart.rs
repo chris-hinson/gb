@@ -1,3 +1,4 @@
+use crate::system::ExecutionError;
 use std::{
     fmt::format,
     fs::{metadata, File},
@@ -256,11 +257,11 @@ impl CartHeader {
 }
 
 impl Cart {
-    pub fn read(&mut self, address: u16, len: usize) -> Result<Vec<u8>, std::io::Error> {
+    pub fn read(&mut self, address: u16, len: usize) -> Result<Vec<u8>, ExecutionError> {
         unimplemented!()
     }
 
-    pub fn write(&mut self, address: u16, data: &[u8]) -> Result<usize, std::io::Error> {
+    pub fn write(&mut self, address: u16, data: &[u8]) -> Result<usize, ExecutionError> {
         unimplemented!()
     }
 }
