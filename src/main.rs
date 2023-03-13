@@ -39,8 +39,10 @@ struct App {
     screen_channel: Receiver<Vec<u8>>,
     command_tx: Sender<BackendCmd>,
     command_rx: Receiver<FrontendCmd>,
+    cpu_rx: Receiver<Cpu>,
     screen_tex: Option<egui::TextureHandle>,
     logs: Vec<String>,
+    cpu_state: Option<Cpu>,
 }
 
 impl App {
@@ -53,6 +55,7 @@ impl App {
         //for commands channels, they are named after where they are sendind TO, and where they are receiving AT
         let (front_cmd_tx, front_cmd_rx) = channel();
         let (back_cmd_tx, back_cmd_rx) = channel();
+        let (cpu_tx, cpu_rx) = channel();
 
         let cpu = cpu::Cpu::new().unwrap();
         let cart = Cart::new(&mut std::fs::File::open("./roms/test_rom.gb").unwrap()).unwrap();
@@ -65,6 +68,7 @@ impl App {
             screen_tx,
             front_cmd_tx,
             back_cmd_rx,
+            cpu_tx,
             repaint_frontend_callback,
             cpu,
             cart,
@@ -79,8 +83,10 @@ impl App {
             screen_channel: screen_rx,
             command_tx: back_cmd_tx,
             command_rx: front_cmd_rx,
+            cpu_rx,
             screen_tex: None,
             logs: Vec::new(),
+            cpu_state: None,
         }
     }
 }
@@ -111,11 +117,17 @@ impl eframe::App for App {
             );
         }
 
+        let cpu_state = self.cpu_rx.try_iter();
+        let l = cpu_state.last();
+        if l.is_some() {
+            self.cpu_state = Some(l.unwrap());
+        }
+
         //log area
         //-----------------------------------------------------------------------------------------
         egui::SidePanel::left("logs").show(ctx, |ui| {
             ui.heading("log_output");
-
+            //ui.with_layout(egui::Layout::right_to_left(egui::Align::LEFT), |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| {
                 // Add a lot of widgets here.
                 for (i, msg) in self.logs.iter().enumerate() {
@@ -125,8 +137,20 @@ impl eframe::App for App {
                     );
                 }
             });
+            //});
         });
         //-----------------------------------------------------------------------------------------
+
+        //cpu Area
+        //-----------------------------------------------------------------------------------------
+        //-----------------------------------------------------------------------------------------
+        egui::SidePanel::right("cpu").show(ctx, |ui| {
+            ui.heading("cpu state");
+            ui.add_sized(
+                [ui.available_width(), 10.0],
+                egui::widgets::Label::new(format!("{}", self.cpu_state.clone().unwrap())),
+            );
+        });
 
         //screen area
         //-----------------------------------------------------------------------------------------

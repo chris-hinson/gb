@@ -1,6 +1,8 @@
 use std::fs::File;
 
 use crate::cart::Cart;
+
+#[derive(Clone)]
 pub struct Cpu {
     pub rf: RegisterFile,
 }
@@ -10,6 +12,11 @@ impl Cpu {
         Ok(Cpu {
             rf: RegisterFile::new(),
         })
+    }
+}
+impl std::fmt::Display for Cpu {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.rf)
     }
 }
 
@@ -22,7 +29,7 @@ HL	    H	L	HL
 SP	    -	-	Stack Pointer
 PC	    -	-	Program Counter/Pointer */
 #[allow(non_snake_case)]
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct RegisterFile {
     pub A: u8,
     pub F: u8,
@@ -34,6 +41,11 @@ pub struct RegisterFile {
     pub L: u8,
     pub SP: u16,
     pub PC: u16,
+}
+impl std::fmt::Display for RegisterFile {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "PC: {:#04X}\nSP: {:#04X}\nAF: {:#02X} {:#02X}\nBC: {:#02X} {:#02X}\nDE: {:#02X} {:#02X}\nHL: {:#02X} {:#02X}\n",self.PC,self.SP,self.A,self.F,self.B,self.C,self.D,self.E,self.H,self.L)
+    }
 }
 
 impl RegisterFile {

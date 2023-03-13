@@ -2,10 +2,32 @@ use crate::{cart::Cart, cpu::Cpu, io::Io, FrontendCmd};
 use rand::prelude::*;
 use rand::rngs::ThreadRng;
 use std::{
+    fmt::format,
     io::Read,
     io::Write,
     sync::mpsc::{Receiver, Sender},
 };
+
+#[rustfmt::skip]
+static OPCODE_TIMINGS: [usize; 256] = [
+//  0  1  2  3  4  5  6  7  8  9  A  B  C  D  E  F 
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //0x0
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //0x1
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //0x2
+    0, 12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //0x3
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //0x4
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //0x5
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //0x6
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //0x7
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //0x8
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //0x9
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //0xA
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //0xB
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //0xC
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //0xD
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //0xE
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //0xF
+];
 
 //this is just a convinience struct to bundle all of the comms data for backend->frontend comms and vice versa
 //essentially anything that is not actually related to the system's operation
@@ -17,12 +39,19 @@ struct Comms {
     screen_tx: Sender<Vec<u8>>,
     command_tx: Sender<FrontendCmd>,
     command_rx: Receiver<BackendCmd>,
+    cpu_tx: Sender<Cpu>,
     repaint_frontend_callback: Box<dyn Fn() + Send>,
 }
 
 #[derive(PartialEq)]
 pub enum BackendCmd {
     Shutdown,
+}
+
+enum SystemState {
+    Running,
+    Crashed,
+    BreakpointHit,
 }
 
 //this represents our entire GB system, both physical hardware units, as well as frontend communications abstractions
@@ -32,6 +61,8 @@ pub struct System {
     cart: Cart,
     io: Io,
     boot_rom: [u8; 0x100],
+    M_cycles: usize,
+    status: SystemState,
 }
 
 impl System {
@@ -40,6 +71,7 @@ impl System {
         screen_tx: Sender<Vec<u8>>,
         command_tx: Sender<FrontendCmd>,
         command_rx: Receiver<BackendCmd>,
+        cpu_tx: Sender<Cpu>,
         repaint_frontend_callback: Box<dyn Fn() + Send>,
         cpu: Cpu,
         cart: Cart,
@@ -54,12 +86,15 @@ impl System {
                 screen_tx,
                 command_tx,
                 command_rx,
+                cpu_tx,
                 repaint_frontend_callback,
             },
             cpu,
             cart,
             io,
             boot_rom,
+            M_cycles: 0,
+            status: SystemState::Running,
         }
     }
 
@@ -79,18 +114,121 @@ impl System {
 
             //fetch the opcode
             let op = self.read(self.cpu.rf.PC, 1).unwrap()[0];
-            self.execute_op(op);
 
             //execute the opcode
+            let execution = self.execute_op(op);
+            if execution.is_err() {
+                self.comms
+                    .log_tx
+                    .send(format!(
+                        "emulation thread crashion on: {}",
+                        execution.unwrap_err()
+                    ))
+                    .unwrap();
+                break 'running;
+            }
+
+            self.comms.cpu_tx.send(self.cpu.clone()).unwrap();
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum ExecutionError {
+    UnimplmentedOpcode(usize),
+}
+
+impl std::error::Error for ExecutionError {}
+impl std::fmt::Display for ExecutionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ExecutionError::UnimplmentedOpcode(o) => {
+                write!(f, "Error while executing opcode: {:#02X}", o)
+            }
         }
     }
 }
 
 impl System {
-    pub fn execute_op(&mut self, opcode: u8) {
+    pub fn execute_op(&mut self, opcode: u8) -> Result<usize, ExecutionError> {
         match opcode {
-            _ => unimplemented!("panicking on unimplemented opcode: {:x}", opcode),
+            0x31 => self.LDSP(opcode),
+            0xA8..=0xAF => self.XOR(opcode),
+            _ => {
+                self.comms
+                    .log_tx
+                    .send(format!("crashing on unimplemented opcode: {:#02x}", opcode))
+                    .unwrap();
+                return Err(ExecutionError::UnimplmentedOpcode(opcode as usize));
+            }
         }
+    }
+}
+
+impl System {
+    pub fn LDSP(&mut self, opcode: u8) -> Result<usize, ExecutionError> {
+        self.cpu.rf.PC += 1;
+        let data = self.read(self.cpu.rf.PC, 2).unwrap();
+        self.cpu.rf.PC += 2;
+        let data: u16 = (data[1] as u16) << 8 | data[0] as u16;
+        self.cpu.rf.SP = data;
+
+        self.M_cycles += OPCODE_TIMINGS[opcode as usize] / 4;
+
+        self.comms
+            .log_tx
+            .send(format!("LD SP,{:#04X}", data))
+            .unwrap();
+        return Ok(OPCODE_TIMINGS[opcode as usize]);
+    }
+
+    pub fn XOR(&mut self, opcode: u8) -> Result<usize, ExecutionError> {
+        //step past the opcode we fetched
+        self.cpu.rf.PC += 1;
+
+        /*
+        if opcode == 0xB8:
+            result = A ^ B
+            A = result
+            flags.Z = 1 if result == 0 else 0
+            flags.N = 0
+            flags.H = 0
+            flags.C = 0 */
+
+        let (log, result) = match opcode {
+            //B
+            0xA8 => ("XOR B".to_owned(), self.cpu.rf.A ^ self.cpu.rf.B),
+            //C
+            0xA9 => ("XOR C".to_owned(), self.cpu.rf.A ^ self.cpu.rf.C),
+            //D
+            0xAA => ("XOR D".to_owned(), self.cpu.rf.A ^ self.cpu.rf.D),
+            //E
+            0xAB => ("XOR E".to_owned(), self.cpu.rf.A ^ self.cpu.rf.E),
+            //H
+            0xAC => ("XOR H".to_owned(), self.cpu.rf.A ^ self.cpu.rf.H),
+            //L
+            0xAD => ("XOR L".to_owned(), self.cpu.rf.A ^ self.cpu.rf.L),
+            //(HL)
+            //TODO: need to return an error if we read from a bad address
+            0xAE => {
+                let data = self.read(self.cpu.rf.HL_read(), 1).unwrap()[0];
+                ("XOR (HL)".to_owned(), self.cpu.rf.A ^ data)
+            } //return Err(ExecutionError::UnimplmentedOpcode(opcode as usize));
+            //A
+            0xAF => ("XOR A".to_owned(), self.cpu.rf.A ^ self.cpu.rf.A),
+            _ => unreachable!(
+                "panicking in XOR becuase we somehow decided to execute an op that doesnt exist"
+            ),
+        };
+        self.cpu.rf.A = result;
+        self.comms.log_tx.send(log).unwrap();
+
+        self.cpu.rf.z_set(self.cpu.rf.A == 0);
+        self.cpu.rf.n_set(false);
+        self.cpu.rf.h_set(false);
+        self.cpu.rf.c_set(false);
+
+        return if opcode == 0xAE { Ok(8) } else { Ok(4) };
     }
 }
 
