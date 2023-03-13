@@ -15,8 +15,6 @@ mod cpu;
 mod io;
 mod system;
 fn main() -> Result<(), eframe::Error> {
-    //println!("Hello, world!");
-
     let options = eframe::NativeOptions {
         ..Default::default()
     };
@@ -43,6 +41,9 @@ struct App {
     screen_tex: Option<egui::TextureHandle>,
     logs: Vec<String>,
     cpu_state: Option<Cpu>,
+    mem_editor: egui_memory_editor::MemoryEditor,
+    dummy_memory: Vec<u8>,
+    memory_rx: Receiver<(usize, Vec<u8>)>,
 }
 
 impl App {
@@ -56,6 +57,7 @@ impl App {
         let (front_cmd_tx, front_cmd_rx) = channel();
         let (back_cmd_tx, back_cmd_rx) = channel();
         let (cpu_tx, cpu_rx) = channel();
+        let (mem_tx, mem_rx) = channel();
 
         let cpu = cpu::Cpu::new().unwrap();
         let cart = Cart::new(&mut std::fs::File::open("./roms/test_rom.gb").unwrap()).unwrap();
@@ -74,6 +76,7 @@ impl App {
             cart,
             io,
             boot_room.try_into().unwrap(),
+            mem_tx,
         );
         let system_handle = std::thread::spawn(move || sys.run());
 
@@ -87,6 +90,13 @@ impl App {
             screen_tex: None,
             logs: Vec::new(),
             cpu_state: None,
+            mem_editor: egui_memory_editor::MemoryEditor::new()
+                .with_window_title("VRAM")
+                //.with_address_range("VRAM", 0x8000..0xA000),
+                .with_address_range("all", 0..0x7FFF)
+                .with_address_range("test", 0x8000..0xA000),
+            dummy_memory: vec![0; 0xFFFF],
+            memory_rx: mem_rx,
         }
     }
 }
@@ -117,10 +127,26 @@ impl eframe::App for App {
             );
         }
 
+        //get latest cpu state
         let cpu_state = self.cpu_rx.try_iter();
         let l = cpu_state.last();
         if l.is_some() {
             self.cpu_state = Some(l.unwrap());
+        }
+
+        //update all of our memory writes
+        let mem_writes = self.memory_rx.try_iter();
+        for (address, data) in mem_writes {
+            //self.dummy_memory[address]
+            self.logs.push(format!(
+                "received mem_write: address: {:#04x}, data: {:?}",
+                address, data
+            ));
+            unsafe {
+                let src_ptr = data.as_ptr();
+                let dst_ptr = self.dummy_memory.as_mut_ptr().add(address);
+                std::ptr::copy_nonoverlapping(src_ptr, dst_ptr, data.len());
+            }
         }
 
         //log area
@@ -166,6 +192,28 @@ impl eframe::App for App {
             ui.image(texture, texture.size_vec2());
         });
         //-----------------------------------------------------------------------------------------
+
+        //memory_editor
+        //egui::Window::new("test").show(ctx, add_contents)
+        /*egui::Window::new("mem_edit_test").show(ctx, |ui| {
+            ui.add(
+                self.mem_editor
+                    .window_ui_read_only(ctx, is_open, mem, read_fn),
+            )
+        });*/
+        /*egui::Window::new("mem_test_window").show(ctx, |ui| {
+            ui.add({self.mem_editor.draw_editor_contents_read_only(
+                ctx,
+                &mut self.dummy_memory,
+                |mem, address| mem.get(address).copied(),
+            ))}
+        });*/
+        self.mem_editor.window_ui_read_only(
+            ctx,
+            &mut true,
+            &mut self.dummy_memory,
+            |mem, address| mem.get(address).copied(),
+        );
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {

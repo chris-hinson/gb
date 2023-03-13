@@ -13,13 +13,13 @@ use std::{
 static OPCODE_TIMINGS: [usize; 256] = [
 //  0  1  2  3  4  5  6  7  8  9  A  B  C  D  E  F 
     0, 12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //0x0
-    0, 12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //0x1
-    0, 12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //0x2
-    0, 12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //0x3
+    0, 12, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //0x1
+    0, 12, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //0x2
+    0, 12, 0, 0, 0, 0, 12, 0, 0, 0, 0, 0, 0, 0, 0, 0, //0x3
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //0x4
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //0x5
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //0x6
-    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //0x7
+    8, 8, 8, 8, 8, 8, 0, 8, 0, 0, 0, 0, 0, 0, 0, 0, //0x7
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //0x8
     0, 0, 0, 0, 0, 0, 0, 0, 4, 4, 4, 4, 4, 4, 4, 4, //0x9
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //0xA
@@ -42,6 +42,7 @@ struct Comms {
     command_rx: Receiver<BackendCmd>,
     cpu_tx: Sender<Cpu>,
     repaint_frontend_callback: Box<dyn Fn() + Send>,
+    mem_tx: Sender<(usize, Vec<u8>)>,
 }
 
 #[derive(PartialEq)]
@@ -62,6 +63,8 @@ pub struct System {
     cart: Cart,
     io: Io,
     boot_rom: [u8; 0x100],
+    vram: [u8; 8192],
+    wram: [u8; 8192],
     M_cycles: usize,
     status: SystemState,
 }
@@ -78,6 +81,7 @@ impl System {
         cart: Cart,
         io: Io,
         boot_rom: [u8; 0x100],
+        mem_tx: Sender<(usize, Vec<u8>)>,
     ) -> Self {
         Self {
             comms: Comms {
@@ -89,11 +93,14 @@ impl System {
                 command_rx,
                 cpu_tx,
                 repaint_frontend_callback,
+                mem_tx,
             },
             cpu,
             cart,
             io,
             boot_rom,
+            vram: [0; 8192],
+            wram: [0; 8192],
             M_cycles: 0,
             status: SystemState::Running,
         }
@@ -163,6 +170,7 @@ impl System {
         match opcode {
             //0x31 => self.LDSP(opcode),
             0x01 | 0x11 | 0x21 | 0x31 => self.LD16imm(opcode),
+            0x70..=0x75 | 0x77 | 0x22 | 0x32 | 0x36 => self.STRHL(opcode),
             0xA8..=0xAF => self.XOR(opcode),
             _ => {
                 self.comms
@@ -176,22 +184,6 @@ impl System {
 }
 
 impl System {
-    /*pub fn LDSP(&mut self, opcode: u8) -> Result<usize, ExecutionError> {
-        self.cpu.rf.PC += 1;
-        let data = self.read(self.cpu.rf.PC, 2).unwrap();
-        self.cpu.rf.PC += 2;
-        let data: u16 = (data[1] as u16) << 8 | data[0] as u16;
-        self.cpu.rf.SP = data;
-
-        self.M_cycles += OPCODE_TIMINGS[opcode as usize] / 4;
-
-        self.comms
-            .log_tx
-            .send(format!("LD SP,{:#04X}", data))
-            .unwrap();
-        return Ok(OPCODE_TIMINGS[opcode as usize]);
-    }*/
-
     pub fn XOR(&mut self, opcode: u8) -> Result<usize, ExecutionError> {
         //step past the opcode we fetched
         self.cpu.rf.PC += 1;
@@ -288,6 +280,74 @@ impl System {
         self.comms.log_tx.send(log).unwrap();
         return Ok(OPCODE_TIMINGS[opcode as usize]);
     }
+
+    pub fn STRHL(&mut self, opcode: u8) -> Result<usize, ExecutionError> {
+        //step past the fetched opcode
+        self.cpu.rf.PC += 1;
+
+        let log = match opcode {
+            //B
+            0x70 => {
+                self.write(self.cpu.rf.HL_read(), &[self.cpu.rf.B])?;
+                format!("LD (HL), B")
+            }
+            //C
+            0x71 => {
+                self.write(self.cpu.rf.HL_read(), &[self.cpu.rf.C])?;
+                format!("LD (HL), C")
+            }
+            //D
+            0x72 => {
+                self.write(self.cpu.rf.HL_read(), &[self.cpu.rf.D])?;
+                format!("LD (HL), D")
+            }
+            //E
+            0x73 => {
+                self.write(self.cpu.rf.HL_read(), &[self.cpu.rf.E])?;
+                format!("LD (HL), E")
+            }
+            //H
+            0x74 => {
+                self.write(self.cpu.rf.HL_read(), &[self.cpu.rf.H])?;
+                format!("LD (HL), H")
+            }
+            //L
+            0x75 => {
+                self.write(self.cpu.rf.HL_read(), &[self.cpu.rf.L])?;
+                format!("LD (HL), L")
+            }
+            //A
+            0x77 => {
+                self.write(self.cpu.rf.HL_read(), &[self.cpu.rf.A])?;
+                format!("LD (HL), A")
+            }
+            //HL increment
+            0x22 => {
+                self.write(self.cpu.rf.HL_read(), &[self.cpu.rf.A])?;
+                self.cpu.rf.HL_write(self.cpu.rf.HL_read() + 1);
+                format!("LD (HL+), A")
+            }
+            //HL decrement
+            0x32 => {
+                self.write(self.cpu.rf.HL_read(), &[self.cpu.rf.A])?;
+                self.cpu.rf.HL_write(self.cpu.rf.HL_read() - 1);
+                format!("LD (HL-), A")
+            }
+            //immeadiate
+            0x36 => {
+                let data = self.read(self.cpu.rf.PC, 1)?[0];
+                self.cpu.rf.PC += 1;
+                self.write(self.cpu.rf.HL_read(), &[data])?;
+                format!("LD (HL), imm8")
+            }
+            _ => {
+                unreachable!("panicking in STRHL on an unreachable opcode")
+            }
+        };
+        self.comms.log_tx.send(log).unwrap();
+
+        return Ok(OPCODE_TIMINGS[opcode as usize]);
+    }
 }
 
 //general memory_map
@@ -320,7 +380,13 @@ impl System {
                 }
             }
             0x4000..=0x7FFF => unimplemented!("unimplemented read from cart rom bank 01~NN"),
-            0x8000..=0x9FFF => unimplemented!("unimplemented read from VRAM"),
+            0x8000..=0x9FFF => {
+                //protect against reading off the end of vram
+                if (address as usize + len) > 0xA000 {
+                    return Err(ExecutionError::IllegalRead(address as usize));
+                }
+                Ok(self.vram[address as usize..=(address as usize + len)].to_vec())
+            }
             0xA000..=0xBFFF => unimplemented!("unimplemented read from cart ram"),
             0xC000..=0xCFFF => unimplemented!("unimplemented read from WRAM bank 0"),
             0xD000..=0xDFFF => unimplemented!("unimplemented read from WRAM bank 1"),
@@ -336,7 +402,7 @@ impl System {
     }
 
     fn write(&mut self, address: u16, data: &[u8]) -> Result<usize, ExecutionError> {
-        match address {
+        let res = match address {
             0x0000..=0x3FFF => {
                 if self.io.bootrom_disable == 0 && address < 0x0100 {
                     //write from bootrom?
@@ -350,7 +416,29 @@ impl System {
                 }
             }
             0x4000..=0x7FFF => unimplemented!("unimplemented write to cart rom bank 01~NN"),
-            0x8000..=0x9FFF => unimplemented!("unimplemented write to VRAM"),
+            0x8000..=0x9FFF => {
+                //protect against writing off the end of vram
+                if (address as usize + data.len()) > 0xA000 {
+                    self.comms
+                        .log_tx
+                        .send(format!(
+                            "address: {:#04x}, data len: {}",
+                            address,
+                            data.len()
+                        ))
+                        .unwrap();
+                    return Err(ExecutionError::IllegalWrite(address as usize));
+                }
+
+                let address = address - 0x8000;
+                unsafe {
+                    let src_ptr = data.as_ptr();
+                    let dst_ptr = self.vram.as_mut_ptr().add(address as usize);
+                    std::ptr::copy_nonoverlapping(src_ptr, dst_ptr, data.len());
+                }
+
+                Ok(data.len())
+            }
             0xA000..=0xBFFF => unimplemented!("unimplemented write to cart ram"),
             0xC000..=0xCFFF => unimplemented!("unimplemented write to WRAM bank 0"),
             0xD000..=0xDFFF => unimplemented!("unimplemented write to WRAM bank 1"),
@@ -362,6 +450,13 @@ impl System {
                 "unimplemented write to HRAM (what the fuck is this even used for lol)"
             ),
             0xFFFF => unimplemented!("unimplemented write to IE reg"),
-        }
+        };
+
+        //on a SUCCESSFUL write, update the frontend's memory
+        self.comms
+            .mem_tx
+            .send((address as usize, data.to_vec()))
+            .unwrap();
+        res
     }
 }

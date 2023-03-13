@@ -716,6 +716,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "egui_memory_editor"
+version = "0.2.2"
+source = "git+https://github.com/Hirtol/egui_memory_editor.git#194e9ad6bd51eed39707e9731db3cde24039691d"
+dependencies = [
+ "egui",
+]
+
+[[package]]
 name = "emath"
 version = "0.21.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -902,6 +910,7 @@ version = "0.1.0"
 dependencies = [
  "eframe",
  "egui",
+ "egui_memory_editor",
  "rand",
 ]
 
