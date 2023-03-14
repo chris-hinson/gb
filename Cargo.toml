@@ -11,3 +11,6 @@ egui = "0.21.0"
 #egui_memory_editor = "0.2.2"
 egui_memory_editor = {git = "https://github.com/Hirtol/egui_memory_editor.git"}
 rand = "0.8.5"
+
+[profile.release]
+debug = true

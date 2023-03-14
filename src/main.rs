@@ -111,6 +111,7 @@ impl eframe::App for App {
         //get any pending logs
         let new_logs = self.log_channel.try_iter();
         for log in new_logs {
+            //println!("{log}");
             self.logs.push(log);
         }
 
@@ -134,7 +135,6 @@ impl eframe::App for App {
         //update all of our memory writes
         let mem_writes = self.memory_rx.try_iter();
         for (address, data) in mem_writes {
-            //self.dummy_memory[address]
             self.logs.push(format!(
                 "received mem_write: address: {:#04x}, data: {:?}",
                 address, data

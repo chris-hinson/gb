@@ -22,6 +22,7 @@ impl std::fmt::Display for Cpu {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
 pub enum Register8 {
     A,
     F,
@@ -53,6 +54,21 @@ impl TryFrom<usize> for Register8 {
             //
             0x7 => Ok(A),
             _ => panic!("cannot convert this usize to an r8"),
+        }
+    }
+}
+
+impl std::fmt::Display for Register8 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            A => write!(f, "A"),
+            B => write!(f, "B"),
+            C => write!(f, "C"),
+            D => write!(f, "D"),
+            E => write!(f, "E"),
+            H => write!(f, "H"),
+            L => write!(f, "L"),
+            F => write!(f, "F"),
         }
     }
 }
@@ -227,7 +243,11 @@ impl RegisterFile {
         }
     }
     pub fn z_set(&mut self, val: bool) {
-        self.F &= if val { 0b1000_0000 } else { 0 }
+        if val {
+            self.F |= 0b1000_0000
+        } else {
+            self.F &= 0b0111_1111
+        }
     }
 
     pub fn n_get(&self) -> bool {
@@ -238,7 +258,11 @@ impl RegisterFile {
         }
     }
     pub fn n_set(&mut self, val: bool) {
-        self.F &= if val { 0b0100_0000 } else { 0 }
+        if val {
+            self.F |= 0b0100_0000
+        } else {
+            self.F &= 0b1011_1111
+        }
     }
 
     pub fn h_get(&self) -> bool {
@@ -249,7 +273,11 @@ impl RegisterFile {
         }
     }
     pub fn h_set(&mut self, val: bool) {
-        self.F &= if val { 0b0010_0000 } else { 0 }
+        if val {
+            self.F |= 0b0010_0000
+        } else {
+            self.F &= 0b1101_1111
+        }
     }
 
     pub fn c_get(&self) -> bool {
@@ -260,6 +288,10 @@ impl RegisterFile {
         }
     }
     pub fn c_set(&mut self, val: bool) {
-        self.F &= if val { 0b0001_0000 } else { 0 }
+        if val {
+            self.F |= 0b0001_0000
+        } else {
+            self.F &= 0b1110_1111
+        }
     }
 }
