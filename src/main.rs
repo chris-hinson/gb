@@ -9,12 +9,18 @@ use std::{
     time::Duration,
 };
 use system::BackendCmd;
+extern crate pretty_env_logger;
+#[macro_use]
+extern crate log;
 
 mod cart;
 mod cpu;
 mod io;
 mod system;
 fn main() -> Result<(), eframe::Error> {
+    pretty_env_logger::init();
+    info!("starting up");
+
     let options = eframe::NativeOptions {
         ..Default::default()
     };
@@ -79,6 +85,12 @@ impl App {
             mem_tx,
         );
         let system_handle = std::thread::spawn(move || sys.run());
+
+        trace!("some trace log");
+        debug!("some debug log");
+        info!("some information log");
+        warn!("some warning log");
+        error!("some error log");
 
         Self {
             system_handle: Some(system_handle),

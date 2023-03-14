@@ -276,7 +276,7 @@ impl System {
             ),
         };
         self.cpu.rf.A = result;
-        self.comms.log_tx.send(log).unwrap();
+        //self.comms.log_tx.send(log).unwrap();
 
         self.cpu.rf.z_set(self.cpu.rf.A == 0);
         self.cpu.rf.n_set(false);
@@ -321,7 +321,7 @@ impl System {
         //make sure we step past the data we just read
         self.cpu.rf.PC += 2;
 
-        self.comms.log_tx.send(log).unwrap();
+        //self.comms.log_tx.send(log).unwrap();
         return Ok(OPCODE_TIMINGS[opcode as usize]);
     }
 
@@ -388,7 +388,7 @@ impl System {
                 unreachable!("panicking in STRHL on an unreachable opcode")
             }
         };
-        self.comms.log_tx.send(log).unwrap();
+        //self.comms.log_tx.send(log).unwrap();
 
         return Ok(OPCODE_TIMINGS[opcode as usize]);
     }
@@ -420,7 +420,7 @@ impl System {
         self.cpu.rf.h_set(true);
         //do not touch carry
 
-        self.comms.log_tx.send(log).unwrap();
+        // self.comms.log_tx.send(log).unwrap();
 
         return Ok(CB_OPCODE_TIMINGS[opcode as usize]);
     }
@@ -458,7 +458,7 @@ impl System {
             self.cpu.rf.PC = self.cpu.rf.PC.wrapping_add_signed(offset as i16);
         }
 
-        self.comms.log_tx.send(log.to_string()).unwrap();
+        //self.comms.log_tx.send(log.to_string()).unwrap();
 
         return Ok(OPCODE_TIMINGS[opcode as usize] + if cond { 4 } else { 0 });
     }
@@ -567,10 +567,10 @@ impl System {
         };
 
         //on a SUCCESSFUL write, update the frontend's memory
-        self.comms
-            .mem_tx
-            .send((address as usize, data.to_vec()))
-            .unwrap();
+        /*self.comms
+        .mem_tx
+        .send((address as usize, data.to_vec()))
+        .unwrap();*/
         res
     }
 }
