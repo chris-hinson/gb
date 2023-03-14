@@ -1,3 +1,4 @@
+use crate::audio::Audio;
 use crate::system::ExecutionError;
 
 //memory mapped registers/ other assorted IO
@@ -18,6 +19,7 @@ $FF70		    CGB	WRAM Bank Select */
 pub struct Io {
     //joypad: u8,
     pub bootrom_disable: u8,
+    pub audio: Audio,
     //dmg_serial_transfer: [u8;2]
 }
 
@@ -33,7 +35,10 @@ impl Io {
             0xFF00 => unimplemented!("tried to read joypad input"),
             0xFF01..=0xFF02 => unimplemented!("tried to read DMG serial transfer"),
             0xFF04..=0xFF07 => unimplemented!("tried to read DMG timer and divider"),
-            0xFF10..=0xFF26 => unimplemented!("tried to read DMG audio"),
+            0xFF10..=0xFF26 => {
+                //unimplemented!("tried to read DMG audio")
+                self.audio.read(address, len)
+            }
             0xFF30..=0xFF3F => unimplemented!("tried to read DMG wave pattern"),
             0xFF40..=0xFF4B => unimplemented!("tried to read LCD control stuff"),
             0xFF4F => unimplemented!("tried to read CGB VRAM bank select"),
@@ -55,7 +60,10 @@ impl Io {
             0xFF00 => unimplemented!("tried to read joypad input"),
             0xFF01..=0xFF02 => unimplemented!("tried to read DMG serial transfer"),
             0xFF04..=0xFF07 => unimplemented!("tried to read DMG timer and divider"),
-            0xFF10..=0xFF26 => unimplemented!("tried to read DMG audio"),
+            0xFF10..=0xFF26 => {
+                //unimplemented!("tried to read DMG audio")
+                self.audio.write(address, data)
+            }
             0xFF30..=0xFF3F => unimplemented!("tried to read DMG wave pattern"),
             0xFF40..=0xFF4B => unimplemented!("tried to read LCD control stuff"),
             0xFF4F => unimplemented!("tried to read CGB VRAM bank select"),

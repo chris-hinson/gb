@@ -258,10 +258,12 @@ impl CartHeader {
 
 impl Cart {
     pub fn read(&mut self, address: u16, len: usize) -> Result<Vec<u8>, ExecutionError> {
-        unimplemented!()
+        warn!("reading from cart which is stubbed to just give back 0x00");
+        return Ok(vec![0; len]);
     }
 
     pub fn write(&mut self, address: u16, data: &[u8]) -> Result<usize, ExecutionError> {
-        unimplemented!()
+        warn!("writing to cart is just going to nothingness rn");
+        return Ok(data.len());
     }
 }

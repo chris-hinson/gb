@@ -1,3 +1,4 @@
+use crate::cpu::Register16::*;
 use crate::{cart::Cart, cpu::Cpu, io::Io, FrontendCmd};
 use rand::prelude::*;
 use rand::rngs::ThreadRng;
@@ -5,7 +6,10 @@ use std::{
     fmt::format,
     io::Read,
     io::Write,
-    sync::mpsc::{Receiver, Sender},
+    sync::{
+        mpsc::{Receiver, Sender},
+        Arc, Mutex,
+    },
 };
 
 #[rustfmt::skip]
@@ -64,7 +68,7 @@ struct Comms {
     command_rx: Receiver<BackendCmd>,
     cpu_tx: Sender<Cpu>,
     repaint_frontend_callback: Box<dyn Fn() + Send>,
-    mem_tx: Sender<(usize, Vec<u8>)>,
+    //mem_tx: Sender<(usize, Vec<u8>)>,
 }
 
 #[derive(PartialEq)]
@@ -85,8 +89,8 @@ pub struct System {
     cart: Cart,
     io: Io,
     boot_rom: [u8; 0x100],
-    vram: [u8; 8192],
-    wram: [u8; 8192],
+    pub vram: [u8; 8192],
+    pub wram: [u8; 8192],
     M_cycles: usize,
     status: SystemState,
 }
@@ -103,7 +107,7 @@ impl System {
         cart: Cart,
         io: Io,
         boot_rom: [u8; 0x100],
-        mem_tx: Sender<(usize, Vec<u8>)>,
+        //mem_tx: Sender<(usize, Vec<u8>)>,
     ) -> Self {
         Self {
             comms: Comms {
@@ -115,7 +119,7 @@ impl System {
                 command_rx,
                 cpu_tx,
                 repaint_frontend_callback,
-                mem_tx,
+                //mem_tx,
             },
             cpu,
             cart,
@@ -129,9 +133,6 @@ impl System {
     }
 
     pub fn run(&mut self) {
-        //let mut last_sent = u64::MAX;
-        //let mut rand = rand::thread_rng();
-
         //1 loop iter = 1 M? cycle
         'running: loop {
             //see if we have gotten any commands from the frontend, and process and parse them if so
@@ -147,6 +148,7 @@ impl System {
 
             //execute the opcode
             let execution = self.execute_op(op);
+            //break execution loop on execution error and let the frontend know what went wrong
             if execution.is_err() {
                 self.comms
                     .log_tx
@@ -160,6 +162,40 @@ impl System {
 
             self.comms.cpu_tx.send(self.cpu.clone()).unwrap();
         }
+    }
+}
+
+pub fn run_mutex(system: Arc<Mutex<System>>) {
+    'running: loop {
+        let mut sys = system.lock().unwrap();
+        //see if we have gotten any commands from the frontend, and process and parse them if so
+        let recv_cmds = sys.comms.command_rx.try_iter();
+        for cmd in recv_cmds {
+            if cmd == BackendCmd::Shutdown {
+                break 'running;
+            }
+        }
+
+        //fetch the opcode
+        let pc = sys.cpu.rf.PC;
+        let op = sys.read(pc, 1).unwrap()[0];
+
+        //execute the opcode
+        let execution = sys.execute_op(op);
+        //break execution loop on execution error and let the frontend know what went wrong
+        if execution.is_err() {
+            sys.comms
+                .log_tx
+                .send(format!(
+                    "emulation thread crashion on: {}",
+                    execution.unwrap_err()
+                ))
+                .unwrap();
+            break 'running;
+        }
+
+        sys.comms.cpu_tx.send(sys.cpu.clone()).unwrap();
+        drop(sys);
     }
 }
 
@@ -196,6 +232,7 @@ impl System {
             0x70..=0x75 | 0x77 | 0x22 | 0x32 | 0x36 => self.STRHL(opcode),
             0xA8..=0xAF => self.XOR(opcode),
             0x20 | 0x30 | 0x28 | 0x38 => self.JRCond(opcode),
+            0x06 | 0x16 | 0x26 | 0x36 | 0x0E | 0x1E | 0x2E | 0x3E => self.LD8imm(opcode),
             0xCB => {
                 self.cpu.rf.PC += 1;
                 let second_byte = self.read(self.cpu.rf.PC, 1)?[0];
@@ -278,6 +315,8 @@ impl System {
         self.cpu.rf.A = result;
         //self.comms.log_tx.send(log).unwrap();
 
+        debug!("{log}");
+
         self.cpu.rf.z_set(self.cpu.rf.A == 0);
         self.cpu.rf.n_set(false);
         self.cpu.rf.h_set(false);
@@ -322,6 +361,8 @@ impl System {
         self.cpu.rf.PC += 2;
 
         //self.comms.log_tx.send(log).unwrap();
+        debug!("{log}");
+
         return Ok(OPCODE_TIMINGS[opcode as usize]);
     }
 
@@ -389,6 +430,7 @@ impl System {
             }
         };
         //self.comms.log_tx.send(log).unwrap();
+        debug!("{log}");
 
         return Ok(OPCODE_TIMINGS[opcode as usize]);
     }
@@ -421,6 +463,7 @@ impl System {
         //do not touch carry
 
         // self.comms.log_tx.send(log).unwrap();
+        debug!("{log}");
 
         return Ok(CB_OPCODE_TIMINGS[opcode as usize]);
     }
@@ -459,8 +502,30 @@ impl System {
         }
 
         //self.comms.log_tx.send(log.to_string()).unwrap();
+        debug!("{log}");
 
         return Ok(OPCODE_TIMINGS[opcode as usize] + if cond { 4 } else { 0 });
+    }
+
+    pub fn LD8imm(&mut self, opcode: u8) -> Result<usize, ExecutionError> {
+        self.cpu.rf.PC += 1;
+
+        //figure out which register we are loading into
+        let reg_mask = 0b0011_1000;
+        let reg = (opcode & reg_mask) >> 3;
+        let reg: crate::cpu::Register8 = (reg as usize).try_into().unwrap();
+
+        //get the imm we are loading
+        let imm8 = self.read(self.cpu.rf.PC, 1)?[0];
+        self.cpu.rf.PC += 1;
+
+        //actually do the load
+        self.cpu.rf[reg] = imm8;
+
+        let log = format!("LD {}, imm8", reg);
+        self.comms.log_tx.send(log).unwrap();
+
+        return Ok(OPCODE_TIMINGS[opcode as usize]);
     }
 }
 
@@ -482,12 +547,26 @@ FFFF	FFFF	Interrupt Enable register (IE)	*/
 impl System {
     //TOD: you're gonna need some nuance to support reading across different memory regions.
     //what happens if you read from 0x3FFF with len >1
-    fn read(&mut self, address: u16, len: usize) -> Result<Vec<u8>, ExecutionError> {
+    pub fn read(&mut self, address: u16, len: usize) -> Result<Vec<u8>, ExecutionError> {
+        trace!(
+            "receiving system read at address {:#04X} of length {:#04X}",
+            address,
+            len
+        );
         match address {
             0x0000..=0x3FFF => {
+                let mut return_vec: Vec<u8> = Vec::new();
+
                 if self.io.bootrom_disable == 0 && address < 0x0100 {
-                    //read from bootrom
-                    Ok(self.boot_rom[address as usize..=address as usize + len].to_vec())
+                    let end_address = address as usize + len;
+                    if end_address < 0x0100 {
+                        //read from bootrom
+                        Ok(self.boot_rom[address as usize..=address as usize + len].to_vec())
+                    } else {
+                        return_vec.append(&mut self.boot_rom[..].to_vec());
+                        return_vec.append(&mut self.cart.read(0x0100, end_address).unwrap());
+                        Ok(return_vec)
+                    }
                 } else {
                     //read from cart rom bank 0
                     self.cart.read(address, len)
@@ -499,7 +578,8 @@ impl System {
                 if (address as usize + len) > 0xA000 {
                     return Err(ExecutionError::IllegalRead(address as usize));
                 }
-                Ok(self.vram[address as usize..=(address as usize + len)].to_vec())
+                let address = address - 0x8000;
+                Ok(self.vram[address as usize..(address as usize + len)].to_vec())
             }
             0xA000..=0xBFFF => unimplemented!("unimplemented read from cart ram"),
             0xC000..=0xCFFF => unimplemented!("unimplemented read from WRAM bank 0"),
@@ -516,6 +596,12 @@ impl System {
     }
 
     fn write(&mut self, address: u16, data: &[u8]) -> Result<usize, ExecutionError> {
+        trace!(
+            "receiving system write at address {:#04X} of length {:#04X}",
+            address,
+            data.len()
+        );
+
         let res = match address {
             0x0000..=0x3FFF => {
                 if self.io.bootrom_disable == 0 && address < 0x0100 {
@@ -566,11 +652,6 @@ impl System {
             0xFFFF => unimplemented!("unimplemented write to IE reg"),
         };
 
-        //on a SUCCESSFUL write, update the frontend's memory
-        /*self.comms
-        .mem_tx
-        .send((address as usize, data.to_vec()))
-        .unwrap();*/
         res
     }
 }

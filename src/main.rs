@@ -4,7 +4,10 @@ use eframe::egui;
 use egui::{ColorImage, TextureOptions};
 use std::{
     alloc::System,
-    sync::mpsc::{channel, Receiver, Sender},
+    sync::{
+        mpsc::{channel, Receiver, Sender},
+        Arc, Mutex,
+    },
     thread::JoinHandle,
     time::Duration,
 };
@@ -13,6 +16,7 @@ extern crate pretty_env_logger;
 #[macro_use]
 extern crate log;
 
+mod audio;
 mod cart;
 mod cpu;
 mod io;
@@ -39,6 +43,7 @@ fn main() -> Result<(), eframe::Error> {
 
 struct App {
     system_handle: Option<JoinHandle<()>>,
+    system_mutex: Arc<Mutex<system::System>>,
     log_channel: Receiver<String>,
     screen_channel: Receiver<Vec<u8>>,
     command_tx: Sender<BackendCmd>,
@@ -49,7 +54,7 @@ struct App {
     cpu_state: Option<Cpu>,
     mem_editor: egui_memory_editor::MemoryEditor,
     dummy_memory: Vec<u8>,
-    memory_rx: Receiver<(usize, Vec<u8>)>,
+    //memory_rx: Receiver<(usize, Vec<u8>)>,
 }
 
 impl App {
@@ -63,7 +68,7 @@ impl App {
         let (front_cmd_tx, front_cmd_rx) = channel();
         let (back_cmd_tx, back_cmd_rx) = channel();
         let (cpu_tx, cpu_rx) = channel();
-        let (mem_tx, mem_rx) = channel();
+        //let (mem_tx, mem_rx) = channel();
 
         let cpu = cpu::Cpu::new().unwrap();
         let cart = Cart::new(&mut std::fs::File::open("./roms/test_rom.gb").unwrap()).unwrap();
@@ -82,18 +87,20 @@ impl App {
             cart,
             io,
             boot_room.try_into().unwrap(),
-            mem_tx,
+            //mem_tx,
         );
-        let system_handle = std::thread::spawn(move || sys.run());
+        let big_ole_mutex = Arc::new(Mutex::new(sys));
+        let sys_for_us = big_ole_mutex.clone();
 
-        trace!("some trace log");
-        debug!("some debug log");
-        info!("some information log");
-        warn!("some warning log");
-        error!("some error log");
+        let thread_builder = std::thread::Builder::new().name("core".to_string());
+        //let system_handle = std::thread::spawn(move || sys.run());
+        let system_handle = thread_builder
+            .spawn(move || crate::system::run_mutex(big_ole_mutex))
+            .unwrap();
 
         Self {
             system_handle: Some(system_handle),
+            system_mutex: sys_for_us,
             log_channel: log_rx,
             screen_channel: screen_rx,
             command_tx: back_cmd_tx,
@@ -103,12 +110,14 @@ impl App {
             logs: Vec::new(),
             cpu_state: None,
             mem_editor: egui_memory_editor::MemoryEditor::new()
-                .with_window_title("VRAM")
+                .with_window_title("memory")
                 //.with_address_range("VRAM", 0x8000..0xA000),
-                .with_address_range("all", 0..0x7FFF)
-                .with_address_range("test", 0x8000..0xA000),
+                .with_address_range("ROM bank 0", 0..0x3FFF)
+                //.with_address_range("ROM bank 1", 0..0x7FFF)
+                .with_address_range("VRAM", 0x8000..0xA000),
+            //.with_address_range("ExRAM", 0x)
             dummy_memory: vec![0; 0xFFFF],
-            memory_rx: mem_rx,
+            //memory_rx: mem_rx,
         }
     }
 }
@@ -121,11 +130,12 @@ impl eframe::App for App {
 
         //nonblocking updates of backing data
         //get any pending logs
-        let new_logs = self.log_channel.try_iter();
+        /*let new_logs = self.log_channel.try_iter();
         for log in new_logs {
             //println!("{log}");
-            self.logs.push(log);
-        }
+            //self.logs.push(log);
+            //debug!("{}", log)
+        }*/
 
         //get all of the screen updates we have been sent, and just display the last one
         let screen_data = self.screen_channel.try_iter();
@@ -144,23 +154,25 @@ impl eframe::App for App {
             self.cpu_state = Some(l.unwrap());
         }
 
-        //update all of our memory writes
-        let mem_writes = self.memory_rx.try_iter();
-        for (address, data) in mem_writes {
-            self.logs.push(format!(
-                "received mem_write: address: {:#04x}, data: {:?}",
-                address, data
-            ));
-            unsafe {
-                let src_ptr = data.as_ptr();
-                let dst_ptr = self.dummy_memory.as_mut_ptr().add(address);
-                std::ptr::copy_nonoverlapping(src_ptr, dst_ptr, data.len());
-            }
+        //update all of our memory views
+        let mut sys = self.system_mutex.lock().unwrap();
+        unsafe {
+            //copy in VRAM
+            let src_ptr = sys.vram.as_ptr();
+            let dst_ptr = self.dummy_memory.as_mut_ptr().add(0x8000);
+            std::ptr::copy_nonoverlapping(src_ptr, dst_ptr, 8192);
+
+            //copy in BANK 0 (either bootroom or ROM bank 0)
+            let bank = sys.read(0x0, 16384).unwrap();
+            let src_ptr = bank.as_ptr();
+            let dst_ptr = self.dummy_memory.as_mut_ptr();
+            std::ptr::copy_nonoverlapping(src_ptr, dst_ptr, bank.len());
         }
+        drop(sys);
 
         //log area
         //-----------------------------------------------------------------------------------------
-        egui::SidePanel::left("logs").show(ctx, |ui| {
+        /*egui::SidePanel::left("logs").show(ctx, |ui| {
             ui.heading("log_output");
             //ui.with_layout(egui::Layout::right_to_left(egui::Align::LEFT), |ui| {
             egui::ScrollArea::vertical().show(ui, |ui| {
@@ -173,7 +185,7 @@ impl eframe::App for App {
                 }
             });
             //});
-        });
+        });*/
         //-----------------------------------------------------------------------------------------
 
         //cpu Area
@@ -189,7 +201,18 @@ impl eframe::App for App {
 
         //screen area
         //-----------------------------------------------------------------------------------------
-        egui::CentralPanel::default().show(ctx, |ui| {
+        /*egui::CentralPanel::default().show(ctx, |ui| {
+            ui.heading("window1");
+            let texture: &egui::TextureHandle = self.screen_tex.get_or_insert_with(|| {
+                ui.ctx().load_texture(
+                    "screen_image",
+                    egui::ColorImage::example(),
+                    Default::default(),
+                )
+            });
+            ui.image(texture, texture.size_vec2());
+        });*/
+        egui::Window::new("screen").show(ctx, |ui| {
             ui.heading("window1");
             let texture: &egui::TextureHandle = self.screen_tex.get_or_insert_with(|| {
                 ui.ctx().load_texture(
