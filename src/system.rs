@@ -30,6 +30,28 @@ static OPCODE_TIMINGS: [usize; 256] = [
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //0xF
 ];
 
+#[rustfmt::skip]
+//opcode timings IN T_CYCLES
+static CB_OPCODE_TIMINGS: [usize; 256] = [
+//  0  1  2  3  4  5  6  7  8  9  A  B  C  D  E  F 
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //0x0
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //0x1
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //0x2
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //0x3
+    4, 4, 4, 4, 4, 4, 12, 4, 4, 4, 4, 4, 4, 4, 12, 4, //0x4
+    4, 4, 4, 4, 4, 4, 12, 4, 4, 4, 4, 4, 4, 4, 12, 4, //0x5
+    4, 4, 4, 4, 4, 4, 12, 4, 4, 4, 4, 4, 4, 4, 12, 4, //0x6
+    4, 4, 4, 4, 4, 4, 12, 4, 4, 4, 4, 4, 4, 4, 12, 4, //0x7
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //0x8
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //0x9
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //0xA
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //0xB
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //0xC
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //0xD
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 8, 0, //0xE
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, //0xF
+];
+
 //this is just a convinience struct to bundle all of the comms data for backend->frontend comms and vice versa
 //essentially anything that is not actually related to the system's operation
 struct Comms {
@@ -172,6 +194,24 @@ impl System {
             0x01 | 0x11 | 0x21 | 0x31 => self.LD16imm(opcode),
             0x70..=0x75 | 0x77 | 0x22 | 0x32 | 0x36 => self.STRHL(opcode),
             0xA8..=0xAF => self.XOR(opcode),
+            0xCB => {
+                self.cpu.rf.PC += 1;
+                let second_byte = self.read(self.cpu.rf.PC, 1)?[0];
+                self.execute_CB_op(second_byte)
+            }
+            _ => {
+                self.comms
+                    .log_tx
+                    .send(format!("crashing on unimplemented opcode: {:#02x}", opcode))
+                    .unwrap();
+                return Err(ExecutionError::UnimplmentedOpcode(opcode as usize));
+            }
+        }
+    }
+    pub fn execute_CB_op(&mut self, opcode: u8) -> Result<usize, ExecutionError> {
+        match opcode {
+            //BIT test operations
+            0x40..=0x7F => self.BIT(opcode),
             _ => {
                 self.comms
                     .log_tx
@@ -347,6 +387,50 @@ impl System {
         self.comms.log_tx.send(log).unwrap();
 
         return Ok(OPCODE_TIMINGS[opcode as usize]);
+    }
+
+    pub fn BIT(&mut self, opcode: u8) -> Result<usize, ExecutionError> {
+        //step past the op we just fetched
+        self.cpu.rf.PC += 1;
+
+        let (log, result) = match opcode {
+            //BIT 0
+            0x40..=0x47 => {
+                let mask = 0b0000_0001;
+                let result = match opcode {
+                    0x40 => !((self.cpu.rf.B & mask) == 0),
+                    0x41 => !((self.cpu.rf.C & mask) == 0),
+                    0x42 => !((self.cpu.rf.D & mask) == 0),
+                    0x43 => !((self.cpu.rf.E & mask) == 0),
+                    0x44 => !((self.cpu.rf.H & mask) == 0),
+                    0x45 => !((self.cpu.rf.L & mask) == 0),
+                    0x46 => {
+                        let data = self.read(self.cpu.rf.HL_read(), 1)?[0];
+                        !((data & mask) == 0)
+                    }
+                    0x47 => !((self.cpu.rf.A & mask) == 0),
+                    _ => unreachable!("panicking in BIT 0 on unreachable opcode {:02x}", opcode),
+                };
+                ("BIT 0,", result)
+            }
+            //BIT 1
+            0x48..=0x4F => ("BIT 1,", false),
+            //BIT 2
+            0x50..=0x57 => ("BIT 2,", false),
+            //BIT 3
+            0x58..=0x5F => ("BIT 3", false),
+            //BIT 4
+            0x60..=0x67 => ("BIT 4", false),
+            //BIT 5
+            0x68..=0x6F => ("BIT 5", false),
+            //BIT 6
+            0x70..=0x77 => ("BIT 6", false),
+            //BIT 7
+            0x78..=0x7F => ("BIT 7", false),
+            _ => unreachable!("panicking in BIT on unreachable opcode {:02x}", opcode),
+        };
+
+        Ok(0)
     }
 }
 

@@ -111,10 +111,7 @@ impl eframe::App for App {
         //get any pending logs
         let new_logs = self.log_channel.try_iter();
         for log in new_logs {
-            println!("received");
             self.logs.push(log);
-
-            println!("logs len {}", self.logs.len());
         }
 
         //get all of the screen updates we have been sent, and just display the last one
