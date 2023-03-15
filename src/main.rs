@@ -3,7 +3,6 @@ use crate::cpu::Cpu;
 use eframe::egui;
 use egui::{ColorImage, TextureOptions};
 use std::{
-    alloc::System,
     sync::{
         mpsc::{channel, Receiver, Sender},
         Arc, Mutex,
@@ -20,6 +19,7 @@ mod audio;
 mod cart;
 mod cpu;
 mod io;
+mod ppu;
 mod system;
 fn main() -> Result<(), eframe::Error> {
     pretty_env_logger::init();
@@ -130,12 +130,12 @@ impl eframe::App for App {
 
         //nonblocking updates of backing data
         //get any pending logs
-        /*let new_logs = self.log_channel.try_iter();
+        let new_logs = self.log_channel.try_iter();
         for log in new_logs {
             //println!("{log}");
-            //self.logs.push(log);
+            self.logs.push(log);
             //debug!("{}", log)
-        }*/
+        }
 
         //get all of the screen updates we have been sent, and just display the last one
         let screen_data = self.screen_channel.try_iter();
@@ -186,6 +186,18 @@ impl eframe::App for App {
             });
             //});
         });*/
+        egui::Window::new("logs").show(ctx, |ui| {
+            ui.heading("logs");
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                // Add a lot of widgets here.
+                for (i, msg) in self.logs.iter().enumerate() {
+                    ui.add_sized(
+                        [ui.available_width(), 10.0],
+                        egui::widgets::Label::new(format!("{}: {}", i, msg)),
+                    );
+                }
+            });
+        });
         //-----------------------------------------------------------------------------------------
 
         //cpu Area

@@ -1,4 +1,6 @@
 use crate::cpu::Register16::*;
+use crate::cpu::Register8;
+use crate::cpu::Register8::*;
 use crate::{cart::Cart, cpu::Cpu, io::Io, FrontendCmd};
 use rand::prelude::*;
 use rand::rngs::ThreadRng;
@@ -232,7 +234,9 @@ impl System {
             0x70..=0x75 | 0x77 | 0x22 | 0x32 | 0x36 => self.STRHL(opcode),
             0xA8..=0xAF => self.XOR(opcode),
             0x20 | 0x30 | 0x28 | 0x38 => self.JRCond(opcode),
-            0x06 | 0x16 | 0x26 | 0x36 | 0x0E | 0x1E | 0x2E | 0x3E => self.LD8imm(opcode),
+            0x06 | 0x16 | 0x26 | 0x0E | 0x1E | 0x2E | 0x3E => self.LD8imm(opcode),
+            0xE0 | 0xE2 => self.WriteIO(opcode),
+            0x04 | 0x14 | 0x24 | 0x34 | 0x0C | 0x1c | 0x2c | 0x3C => self.INC8(opcode),
             0xCB => {
                 self.cpu.rf.PC += 1;
                 let second_byte = self.read(self.cpu.rf.PC, 1)?[0];
@@ -243,6 +247,7 @@ impl System {
                     .log_tx
                     .send(format!("crashing on unimplemented opcode: {:#02x}", opcode))
                     .unwrap();
+                error!("crashing on unimplemented opcode: {:#02x}", opcode);
                 return Err(ExecutionError::UnimplmentedOpcode(opcode as usize));
             }
         }
@@ -523,8 +528,65 @@ impl System {
         self.cpu.rf[reg] = imm8;
 
         let log = format!("LD {}, imm8", reg);
-        self.comms.log_tx.send(log).unwrap();
+        debug!("{log}");
+        //self.comms.log_tx.send(log).unwrap();
 
+        return Ok(OPCODE_TIMINGS[opcode as usize]);
+    }
+
+    pub fn WriteIO(&mut self, opcode: u8) -> Result<usize, ExecutionError> {
+        self.cpu.rf.PC += 1;
+
+        let (log, mut address) = if opcode == 0xE0 {
+            let imm = self.read(self.cpu.rf.PC, 1)?[0];
+            self.cpu.rf.PC += 1;
+            ("LD (FF00+u8),A", imm as usize)
+        } else {
+            ("LD (FF00+C),A", self.cpu.rf[C] as usize)
+        };
+        address += 0xFF00;
+
+        self.write(address as u16, &[self.cpu.rf[A]])?;
+
+        debug!("{log}");
+
+        return Ok(OPCODE_TIMINGS[opcode as usize]);
+    }
+
+    pub fn INC8(&mut self, opcode: u8) -> Result<usize, ExecutionError> {
+        self.cpu.rf.PC += 1;
+
+        let reg_mask = 0b0011_1000;
+        let reg: usize = ((opcode & reg_mask) >> 3) as usize;
+        let (log, result, original) = if reg == 0b00110_0000 {
+            //HL indirect
+            let cur = self.read(self.cpu.rf.HL_read(), 1)?[0];
+            self.write(self.cpu.rf.HL_read().wrapping_add(1), &[cur])?;
+            (
+                "INC (HL)".to_string(),
+                self.read(self.cpu.rf.HL_read(), 1)?[0],
+                cur,
+            )
+        } else {
+            //normal reg increment
+            let reg: Register8 = reg.try_into().unwrap();
+            let cur = self.cpu.rf[reg];
+            self.cpu.rf[reg] = cur.wrapping_add(1);
+            (format!("INC {}", reg), self.cpu.rf[reg], cur)
+        };
+
+        //FLAGS!!!!!!!
+        self.cpu.rf.z_set(result == 0);
+        self.cpu.rf.n_set(false);
+        //HC DEPENDANT ON WHAT???
+        //TODO: I AM LITERALLY JUST GUESSING AT BEHAVIOR HERE WHAT IS IT SUPPOSED TO BE
+        //note 3/14/23: gameboy has no instructions dependant on the HC flag so bad behavior might be fine
+        self.cpu
+            .rf
+            .h_set((result & 0b0001_0000) != 0 && (original & 0b0000_1111) == 0b0000_1111);
+        //carry untouched
+
+        debug!("{log}");
         return Ok(OPCODE_TIMINGS[opcode as usize]);
     }
 }
