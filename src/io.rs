@@ -1,6 +1,6 @@
 use crate::audio::Audio;
+use crate::ppu::Ppu;
 use crate::system::ExecutionError;
-
 //memory mapped registers/ other assorted IO
 
 /*IO memory map
@@ -20,6 +20,7 @@ pub struct Io {
     //joypad: u8,
     pub bootrom_disable: u8,
     pub audio: Audio,
+    pub ppu: Ppu,
     //dmg_serial_transfer: [u8;2]
 }
 
@@ -40,7 +41,14 @@ impl Io {
                 self.audio.read(address, len)
             }
             0xFF30..=0xFF3F => unimplemented!("tried to read DMG wave pattern"),
-            0xFF40..=0xFF4B => unimplemented!("tried to read LCD control stuff"),
+            0xFF40..=0xFF4B => {
+                //unimplemented!("tried to read LCD control stuff")
+                let mut ret_vec: Vec<u8> = Vec::new();
+                for i in address as usize..address as usize + len {
+                    ret_vec.push(self.ppu.read(i.try_into().unwrap())?);
+                }
+                Ok(ret_vec)
+            }
             0xFF4F => unimplemented!("tried to read CGB VRAM bank select"),
             0xFF50 => {
                 if len > 1 {
@@ -57,16 +65,25 @@ impl Io {
 
     pub fn write(&mut self, address: u16, data: &[u8]) -> Result<usize, ExecutionError> {
         match address {
-            0xFF00 => unimplemented!("tried to read joypad input"),
-            0xFF01..=0xFF02 => unimplemented!("tried to read DMG serial transfer"),
-            0xFF04..=0xFF07 => unimplemented!("tried to read DMG timer and divider"),
+            0xFF00 => unimplemented!("tried to write joypad input"),
+            0xFF01..=0xFF02 => unimplemented!("tried to write DMG serial transfer"),
+            0xFF04..=0xFF07 => unimplemented!("tried to write DMG timer and divider"),
             0xFF10..=0xFF26 => {
                 //unimplemented!("tried to read DMG audio")
                 self.audio.write(address, data)
             }
-            0xFF30..=0xFF3F => unimplemented!("tried to read DMG wave pattern"),
-            0xFF40..=0xFF4B => unimplemented!("tried to read LCD control stuff"),
-            0xFF4F => unimplemented!("tried to read CGB VRAM bank select"),
+            0xFF30..=0xFF3F => unimplemented!("tried to write DMG wave pattern"),
+            0xFF40..=0xFF4B => {
+                //unimplemented!("tried to write LCD control stuff")
+
+                for (i, v) in data.iter().enumerate() {
+                    self.ppu
+                        .write(((address as usize) + i).try_into().unwrap(), *v)
+                        .unwrap();
+                }
+                Ok(data.len())
+            }
+            0xFF4F => unimplemented!("tried to write CGB VRAM bank select"),
             0xFF50 => {
                 if data.len() > 1 {
                     Err(ExecutionError::IllegalWrite(address as usize))
@@ -75,10 +92,10 @@ impl Io {
                     return Ok(1);
                 }
             }
-            0xFF51..=0xFF55 => unimplemented!("tried to read CGB VRAM DMA"),
-            0xFF68..=0xFF69 => unimplemented!("tried to read CGB BG/OBJ PPalettes"),
-            0xFF70 => unimplemented!("tried to read CGB WRAM bank select"),
-            _ => panic!("read from bad address in I/O range"),
+            0xFF51..=0xFF55 => unimplemented!("tried to write CGB VRAM DMA"),
+            0xFF68..=0xFF69 => unimplemented!("tried to write CGB BG/OBJ PPalettes"),
+            0xFF70 => unimplemented!("tried to write CGB WRAM bank select"),
+            _ => panic!("write from bad address in I/O range"),
         }
     }
 }

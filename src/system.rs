@@ -93,6 +93,7 @@ pub struct System {
     boot_rom: [u8; 0x100],
     pub vram: [u8; 8192],
     pub wram: [u8; 8192],
+    pub hram: [u8; 126],
     M_cycles: usize,
     status: SystemState,
 }
@@ -129,6 +130,7 @@ impl System {
             boot_rom,
             vram: [0; 8192],
             wram: [0; 8192],
+            hram: [0; 126],
             M_cycles: 0,
             status: SystemState::Running,
         }
@@ -237,6 +239,10 @@ impl System {
             0x06 | 0x16 | 0x26 | 0x0E | 0x1E | 0x2E | 0x3E => self.LD8imm(opcode),
             0xE0 | 0xE2 => self.WriteIO(opcode),
             0x04 | 0x14 | 0x24 | 0x34 | 0x0C | 0x1c | 0x2c | 0x3C => self.INC8(opcode),
+            0x0A | 0x1A | 0x2A | 0x3A => self.LDA(opcode),
+            //TODO decide where you actually want store hl ind to go lol
+            0x02 | 0x12 | 0x22 | 0x32 => self.STRA(opcode),
+            0xC4 | 0xD4 | 0xCC | 0xDC | 0xCD => self.CALL(opcode),
             0xCB => {
                 self.cpu.rf.PC += 1;
                 let second_byte = self.read(self.cpu.rf.PC, 1)?[0];
@@ -589,6 +595,183 @@ impl System {
         debug!("{log}");
         return Ok(OPCODE_TIMINGS[opcode as usize]);
     }
+
+    pub fn LDA(&mut self, opcode: u8) -> Result<usize, ExecutionError> {
+        self.cpu.rf.PC += 1;
+
+        let (log, value) = match opcode {
+            0x0A => {
+                //BC
+                ("LD A, (BC)", self.read(self.cpu.rf.BC_read(), 1)?[0])
+            }
+            0x1A => {
+                //DE
+                ("LD A, (DE)", self.read(self.cpu.rf.DE_read(), 1)?[0])
+            }
+            0x2A => {
+                //HL+
+                let ret = ("LD A, (HL+)", self.read(self.cpu.rf.HL_read(), 1)?[0]);
+                self.cpu.rf.HL_write(self.cpu.rf.HL_read().wrapping_add(1));
+                ret
+            }
+            0x3a => {
+                //HL-
+                let ret = ("LD A, (HL-)", self.read(self.cpu.rf.HL_read(), 1)?[0]);
+                self.cpu.rf.HL_write(self.cpu.rf.HL_read().wrapping_sub(1));
+                ret
+            }
+            _ => unreachable!("panicking in LDA on unreachable opcode"),
+        };
+
+        self.cpu.rf.A = value;
+
+        debug!("{log}");
+        return Ok(OPCODE_TIMINGS[opcode as usize]);
+    }
+
+    pub fn STRA(&mut self, opcode: u8) -> Result<usize, ExecutionError> {
+        self.cpu.rf.PC += 1;
+
+        let (log, address) = match opcode {
+            0x02 => {
+                //BC
+                ("LD (BA), A", self.cpu.rf.BC_read())
+            }
+            0x12 => {
+                //DE
+                ("LD (DE), A", self.cpu.rf.DE_read())
+            }
+            0x22 => {
+                //HL+
+                let ret = ("LD (HL+), A", self.cpu.rf.HL_read());
+                self.cpu.rf.HL_write(self.cpu.rf.HL_read().wrapping_add(1));
+                ret
+            }
+            0x32 => {
+                //HL-
+                let ret = ("LD (HL-), A", self.cpu.rf.HL_read());
+                self.cpu.rf.HL_write(self.cpu.rf.HL_read().wrapping_sub(1));
+                ret
+            }
+            _ => unreachable!("panicking in LDA on unreachable opcode"),
+        };
+
+        self.write(address, &[self.cpu.rf[A]])?;
+
+        debug!("{log}");
+        return Ok(OPCODE_TIMINGS[opcode as usize]);
+    }
+
+    pub fn CALL(&mut self, opcode: u8) -> Result<usize, ExecutionError> {
+        self.cpu.rf.PC += 1;
+
+        //CD imm unconditional
+        let log = match opcode {
+            //NZ
+            0xC4 => {
+                let address_lower = self.read(self.cpu.rf.PC, 1)?[0];
+                let address_higher = self.read(self.cpu.rf.PC + 1, 1)?[0];
+                let address = ((address_higher as u16) << 8) & address_lower as u16;
+                self.cpu.rf.PC += 2;
+                //PC = address
+                if !self.cpu.rf.c_get() {
+                    //write	PC:upper->(--SP)
+                    self.cpu.rf.SP = self.cpu.rf.SP.wrapping_sub(1);
+                    self.write(self.cpu.rf.SP, &[((self.cpu.rf.PC & 0xF0) >> 4) as u8])?;
+                    //write	PC:lower->(--SP)
+                    self.cpu.rf.SP = self.cpu.rf.SP.wrapping_sub(1);
+                    self.write(self.cpu.rf.SP, &[(self.cpu.rf.PC & 0x0F) as u8])?;
+                    self.cpu.rf.PC = address;
+                }
+                "CALL NZ, u16".to_string()
+            }
+            //NC
+            0xD4 => {
+                let address_lower = self.read(self.cpu.rf.PC, 1)?[0];
+                let address_higher = self.read(self.cpu.rf.PC + 1, 1)?[0];
+                let address = ((address_higher as u16) << 8) & address_lower as u16;
+                self.cpu.rf.PC += 2;
+                //PC = address
+                if !self.cpu.rf.c_get() {
+                    //write	PC:upper->(--SP)
+                    self.cpu.rf.SP = self.cpu.rf.SP.wrapping_sub(1);
+                    self.write(self.cpu.rf.SP, &[((self.cpu.rf.PC & 0xF0) >> 4) as u8])?;
+                    //write	PC:lower->(--SP)
+                    self.cpu.rf.SP = self.cpu.rf.SP.wrapping_sub(1);
+                    self.write(self.cpu.rf.SP, &[(self.cpu.rf.PC & 0x0F) as u8])?;
+                    self.cpu.rf.PC = address;
+                }
+                "CALL NC, u16".to_string()
+            }
+            //Z
+            0xCC => {
+                let address_lower = self.read(self.cpu.rf.PC, 1)?[0];
+                let address_higher = self.read(self.cpu.rf.PC + 1, 1)?[0];
+                let address = ((address_higher as u16) << 8) & address_lower as u16;
+                self.cpu.rf.PC += 2;
+                //PC = address
+                if self.cpu.rf.z_get() {
+                    //write	PC:upper->(--SP)
+                    self.cpu.rf.SP = self.cpu.rf.SP.wrapping_sub(1);
+                    self.write(self.cpu.rf.SP, &[((self.cpu.rf.PC & 0xF0) >> 4) as u8])?;
+                    //write	PC:lower->(--SP)
+                    self.cpu.rf.SP = self.cpu.rf.SP.wrapping_sub(1);
+                    self.write(self.cpu.rf.SP, &[(self.cpu.rf.PC & 0x0F) as u8])?;
+                    self.cpu.rf.PC = address;
+                }
+                "CALL Z, u16".to_string()
+            }
+            //C
+            0xDC => {
+                let address_lower = self.read(self.cpu.rf.PC, 1)?[0];
+                let address_higher = self.read(self.cpu.rf.PC + 1, 1)?[0];
+
+                let address = ((address_higher as u16) << 8) & address_lower as u16;
+                self.cpu.rf.PC += 2;
+
+                //PC = address
+                if self.cpu.rf.c_get() {
+                    //write	PC:upper->(--SP)
+                    self.cpu.rf.SP = self.cpu.rf.SP.wrapping_sub(1);
+                    self.write(self.cpu.rf.SP, &[((self.cpu.rf.PC & 0xF0) >> 4) as u8])?;
+                    //write	PC:lower->(--SP)
+                    self.cpu.rf.SP = self.cpu.rf.SP.wrapping_sub(1);
+                    self.write(self.cpu.rf.SP, &[(self.cpu.rf.PC & 0x0F) as u8])?;
+                    self.cpu.rf.PC = address;
+                }
+                "CALL C, u16".to_string()
+            }
+            //uncond
+            0xCD => {
+                let address_lower = self.read(self.cpu.rf.PC, 1)?[0];
+                let address_higher = self.read(self.cpu.rf.PC + 1, 1)?[0];
+                let address: u16 = ((address_higher as u16) << 8) | (address_lower as u16);
+                self.cpu.rf.PC += 2;
+
+                debug!(
+                    "high byte: {:#x}, low byte: {:#x}, full addr: {:#x}",
+                    (address_higher as u16) << 8,
+                    address_lower as u16,
+                    address
+                );
+
+                //write	PC:upper->(--SP)
+                self.cpu.rf.SP = self.cpu.rf.SP.wrapping_sub(1);
+                self.write(self.cpu.rf.SP, &[((self.cpu.rf.PC & 0xF0) >> 4) as u8])?;
+                //write	PC:lower->(--SP)
+                self.cpu.rf.SP = self.cpu.rf.SP.wrapping_sub(1);
+                self.write(self.cpu.rf.SP, &[(self.cpu.rf.PC & 0x0F) as u8])?;
+
+                //PC = address
+                self.cpu.rf.PC = address;
+                format!("CALL u16 {}", address)
+            }
+            _ => unreachable!("crashing in CALL on bad opcode"),
+        };
+
+        debug!("{log}");
+        return Ok(OPCODE_TIMINGS[opcode as usize]);
+    }
 }
 
 //general memory_map
@@ -650,9 +833,14 @@ impl System {
             0xFE00..=0xFE9F => unimplemented!("unimplemented read from OAM"),
             0xFEA0..=0xFEFF => unimplemented!("unimplemented read from UNUSABLE AREA"),
             0xFF00..=0xFF7F => self.io.read(address, len),
-            0xFF80..=0xFFFE => unimplemented!(
-                "unimplemented read from HRAM (what the fuck is this even used for lol)"
-            ),
+            0xFF80..=0xFFFE => {
+                //unimplemented!("unimplemented read from HRAM (what the fuck is this even used for lol)")
+                if (address as usize + len) > 0xFFFF {
+                    return Err(ExecutionError::IllegalRead(address as usize));
+                }
+                let address = address - 0xFF80;
+                Ok(self.hram[address as usize..(address as usize + len)].to_vec())
+            }
             0xFFFF => unimplemented!("unimplemented read from IE reg"),
         }
     }
@@ -708,9 +896,16 @@ impl System {
             0xFE00..=0xFE9F => unimplemented!("unimplemented write to OAM"),
             0xFEA0..=0xFEFF => unimplemented!("unimplemented write to UNUSABLE AREA"),
             0xFF00..=0xFF7F => self.io.write(address, data),
-            0xFF80..=0xFFFE => unimplemented!(
-                "unimplemented write to HRAM (what the fuck is this even used for lol)"
-            ),
+            0xFF80..=0xFFFE => {
+                //unimplemented!("unimplemented write to HRAM (what the fuck is this even used for lol)")
+                let address = address - 0xFF80;
+                unsafe {
+                    let src_ptr = data.as_ptr();
+                    let dst_ptr = self.hram.as_mut_ptr().add(address as usize);
+                    std::ptr::copy_nonoverlapping(src_ptr, dst_ptr, data.len());
+                }
+                Ok(data.len())
+            }
             0xFFFF => unimplemented!("unimplemented write to IE reg"),
         };
 
