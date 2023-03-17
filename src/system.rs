@@ -1,3 +1,4 @@
+use crate::cpu::Register16;
 use crate::cpu::Register16::*;
 use crate::cpu::Register8;
 use crate::cpu::Register8::*;
@@ -234,15 +235,35 @@ impl System {
             //0x31 => self.LDSP(opcode),
             0x01 | 0x11 | 0x21 | 0x31 => self.LD16imm(opcode),
             0x70..=0x75 | 0x77 | 0x22 | 0x32 | 0x36 => self.STRHL(opcode),
-            0xA8..=0xAF => self.XOR(opcode),
-            0x20 | 0x30 | 0x28 | 0x38 => self.JRCond(opcode),
+            //0xA8..=0xAF => self.XOR(opcode),
+            0x20 | 0x30 | 0x28 | 0x38 | 0x18 => self.JRCond(opcode),
             0x06 | 0x16 | 0x26 | 0x0E | 0x1E | 0x2E | 0x3E => self.LD8imm(opcode),
             0xE0 | 0xE2 => self.WriteIO(opcode),
+            0xF0 | 0xF2 => self.ReadIO(opcode),
             0x04 | 0x14 | 0x24 | 0x34 | 0x0C | 0x1c | 0x2c | 0x3C => self.INC8(opcode),
             0x0A | 0x1A | 0x2A | 0x3A => self.LDA(opcode),
             //TODO decide where you actually want store hl ind to go lol
             0x02 | 0x12 | 0x22 | 0x32 => self.STRA(opcode),
             0xC4 | 0xD4 | 0xCC | 0xDC | 0xCD => self.CALL(opcode),
+            0x40..=0x75 | 0x77..=0x7F => self.MV(opcode),
+            0xC5 | 0xD5 | 0xE5 | 0xF5 => self.PUSH(opcode),
+            0xC1 | 0xD1 | 0xE1 | 0xF1 => self.POP(opcode),
+            0x07 => self.RLCA(opcode),
+            0x17 => self.RLA(opcode),
+            0x05 | 0x15 | 0x25 | 0x35 | 0x0D | 0x1D | 0x2D | 0x3D => self.DEC8(opcode),
+            0x03 | 0x13 | 0x23 | 0x33 => self.INC16(opcode),
+            0x0B | 0x1B | 0x2B | 0x3B => self.DEC16(opcode),
+            0xC0 | 0xD0 | 0xC8 | 0xD8 | 0xC9 | 0xD9 => self.RET(opcode),
+            0x80..=0x87 | 0xC6 => self.ADD(opcode),
+            0x88..=0x8F | 0xCE => self.ADC(opcode),
+            0x90..=0x97 | 0xD6 => self.SUB(opcode),
+            0x98..=0x9F | 0xDE => self.SBC(opcode),
+            0xA0..=0xA7 | 0xE6 => self.AND(opcode),
+            0xA8..=0xAF | 0xEE => self.XOR(opcode),
+            0xB0..=0xB7 | 0xF6 => self.OR(opcode),
+            0xB8..=0xBF | 0xFE => self.CP(opcode),
+            0xEA => self.STRA16(opcode),
+            0xFA => self.LDA16(opcode),
             0xCB => {
                 self.cpu.rf.PC += 1;
                 let second_byte = self.read(self.cpu.rf.PC, 1)?[0];
@@ -261,81 +282,30 @@ impl System {
     #[allow(non_snake_case)]
     pub fn execute_CB_op(&mut self, opcode: u8) -> Result<usize, ExecutionError> {
         match opcode {
+            0x00..=0x07 => self.RLC(opcode),
+            0x08..=0x0F => self.RRC(opcode),
+            0x10..=0x17 => self.RL(opcode),
+            0x18..=0x1F => self.RR(opcode),
+            0x20..=0x27 => self.SLA(opcode),
+            0x28..=0x2F => self.SRA(opcode),
+            0x30..=0x37 => self.SWAP(opcode),
+            0x38..=0x3F => self.SRL(opcode),
             //BIT test operations
             0x40..=0x7F => self.BIT(opcode),
-            _ => {
-                self.comms
-                    .log_tx
-                    .send(format!("crashing on unimplemented opcode: {:#02x}", opcode))
-                    .unwrap();
+            0x80..=0xBf => self.RES(opcode),
+            0xC0..=0xFF => self.SET(opcode),
+            /*_ => {
+                let log = format!("crashing on unimplemented opcode: 0xCB{:02x}", opcode);
+                self.comms.log_tx.send(log.clone()).unwrap();
+                error!("{log}");
                 return Err(ExecutionError::UnimplmentedOpcode(opcode as usize));
-            }
+            }*/
         }
     }
 }
 
 #[allow(non_snake_case)]
 impl System {
-    pub fn XOR(&mut self, opcode: u8) -> Result<usize, ExecutionError> {
-        //step past the opcode we fetched
-        self.cpu.rf.PC += 1;
-
-        /*
-        if opcode == 0xB8:
-            result = A ^ B
-            A = result
-            flags.Z = 1 if result == 0 else 0
-            flags.N = 0
-            flags.H = 0
-            flags.C = 0 */
-
-        let (log, result) = match opcode {
-            //B
-            0xA8 => ("XOR B".to_owned(), self.cpu.rf.A ^ self.cpu.rf.B),
-            //C
-            0xA9 => ("XOR C".to_owned(), self.cpu.rf.A ^ self.cpu.rf.C),
-            //D
-            0xAA => ("XOR D".to_owned(), self.cpu.rf.A ^ self.cpu.rf.D),
-            //E
-            0xAB => ("XOR E".to_owned(), self.cpu.rf.A ^ self.cpu.rf.E),
-            //H
-            0xAC => ("XOR H".to_owned(), self.cpu.rf.A ^ self.cpu.rf.H),
-            //L
-            0xAD => ("XOR L".to_owned(), self.cpu.rf.A ^ self.cpu.rf.L),
-            //(HL)
-            //TODO: need to return an error if we read from a bad address
-            0xAE => {
-                //let data = self.read(self.cpu.rf.HL_read(), 1).unwrap()[0];
-                let data = self.read(self.cpu.rf.HL_read(), 1)?[0];
-
-                ("XOR (HL)".to_owned(), self.cpu.rf.A ^ data)
-            } //return Err(ExecutionError::UnimplmentedOpcode(opcode as usize));
-            //A
-            0xAF => ("XOR A".to_owned(), self.cpu.rf.A ^ self.cpu.rf.A),
-            //imm
-            0xEE => {
-                let data = self.read(self.cpu.rf.PC, 1)?[0];
-                //dont forget to step another byte since we are using an immeadiate
-                self.cpu.rf.PC += 1;
-                (format!("XOR d8 [{:x}]", data), self.cpu.rf.A ^ data)
-            }
-            _ => unreachable!(
-                "panicking in XOR becuase we somehow decided to execute an op that doesnt exist"
-            ),
-        };
-        self.cpu.rf.A = result;
-        //self.comms.log_tx.send(log).unwrap();
-
-        debug!("{log}");
-
-        self.cpu.rf.z_set(self.cpu.rf.A == 0);
-        self.cpu.rf.n_set(false);
-        self.cpu.rf.h_set(false);
-        self.cpu.rf.c_set(false);
-
-        return Ok(OPCODE_TIMINGS[opcode as usize]);
-    }
-
     pub fn LD16imm(&mut self, opcode: u8) -> Result<usize, ExecutionError> {
         //step past the opcode we fetched
         self.cpu.rf.PC += 1;
@@ -446,39 +416,6 @@ impl System {
         return Ok(OPCODE_TIMINGS[opcode as usize]);
     }
 
-    pub fn BIT(&mut self, opcode: u8) -> Result<usize, ExecutionError> {
-        //step past the op we just fetched
-        self.cpu.rf.PC += 1;
-
-        //Shoutout Jarrett for noticing this neat encoding pattern
-
-        let testing_bit = (opcode & 0b0011_1000) >> 3;
-        //println!("testing bit {}", testing_bit);
-        let bit_mask = 2_u32.pow((testing_bit) as u32);
-        //println!("bitmask: {:b}", bit_mask);
-        let reg = opcode & 0b0000_0111;
-        let reg: crate::cpu::Register8 = (reg as usize).try_into().unwrap();
-        /*println!(
-            "register: {} with value {:x}  {:b}",
-            reg, self.cpu.rf[reg], self.cpu.rf[reg]
-        );*/
-
-        let log = format!("BIT {},{}", testing_bit, reg);
-
-        let result = (self.cpu.rf[reg] as u32 & bit_mask) >> testing_bit == 1;
-        //println!("result says {}", result);
-
-        self.cpu.rf.z_set(!result);
-        self.cpu.rf.n_set(false);
-        self.cpu.rf.h_set(true);
-        //do not touch carry
-
-        // self.comms.log_tx.send(log).unwrap();
-        debug!("{log}");
-
-        return Ok(CB_OPCODE_TIMINGS[opcode as usize]);
-    }
-
     pub fn JRCond(&mut self, opcode: u8) -> Result<usize, ExecutionError> {
         //jump past the op we just fetched
         self.cpu.rf.PC += 1;
@@ -501,6 +438,7 @@ impl System {
             0x30 => ("JR NC,i8", !self.cpu.rf.c_get()),
             0x28 => ("JR Z,i8", self.cpu.rf.z_get()),
             0x38 => ("JR C,i8", self.cpu.rf.c_get()),
+            0x18 => ("JR s8", true),
             _ => {
                 unreachable!("panicking in JRCond on an unreachable opcode")
             }
@@ -558,6 +496,30 @@ impl System {
 
         return Ok(OPCODE_TIMINGS[opcode as usize]);
     }
+    pub fn ReadIO(&mut self, opcode: u8) -> Result<usize, ExecutionError> {
+        self.cpu.rf.PC += 1;
+
+        let (address, log) = if opcode == 0xF0 {
+            //imm
+            let offset = self.read(self.cpu.rf.PC, 1)?[0];
+            self.cpu.rf.PC += 1;
+            (
+                0xFF00 + offset as u16,
+                format!("LD A, (FF00 + {:x})", offset),
+            )
+        } else {
+            (
+                0xFF00 + self.cpu.rf[C] as u16,
+                "LD A, (FF00 + u8)".to_string(),
+            )
+        };
+
+        self.cpu.rf[A] = self.read(address, 1)?[0];
+
+        debug!("{log}");
+
+        return Ok(OPCODE_TIMINGS[opcode as usize]);
+    }
 
     pub fn INC8(&mut self, opcode: u8) -> Result<usize, ExecutionError> {
         self.cpu.rf.PC += 1;
@@ -591,6 +553,95 @@ impl System {
             .rf
             .h_set((result & 0b0001_0000) != 0 && (original & 0b0000_1111) == 0b0000_1111);
         //carry untouched
+
+        debug!("{log}");
+        return Ok(OPCODE_TIMINGS[opcode as usize]);
+    }
+    pub fn DEC8(&mut self, opcode: u8) -> Result<usize, ExecutionError> {
+        self.cpu.rf.PC += 1;
+
+        let reg_mask = 0b0011_1000;
+        let reg: usize = ((opcode & reg_mask) >> 3) as usize;
+        let (log, result, original) = if reg == 0b00110_0000 {
+            //HL indirect
+            let cur = self.read(self.cpu.rf.HL_read(), 1)?[0];
+            self.write(self.cpu.rf.HL_read().wrapping_sub(1), &[cur])?;
+            (
+                "DEC (HL)".to_string(),
+                self.read(self.cpu.rf.HL_read(), 1)?[0],
+                cur,
+            )
+        } else {
+            //normal reg increment
+            let reg: Register8 = reg.try_into().unwrap();
+            let cur = self.cpu.rf[reg];
+            self.cpu.rf[reg] = cur.wrapping_sub(1);
+            (format!("DEC {}", reg), self.cpu.rf[reg], cur)
+        };
+
+        //FLAGS!!!!!!!
+        self.cpu.rf.z_set(result == 0);
+        self.cpu.rf.n_set(false);
+        //HC DEPENDANT ON WHAT???
+        //TODO: I AM LITERALLY JUST GUESSING AT BEHAVIOR HERE WHAT IS IT SUPPOSED TO BE
+        //note 3/14/23: gameboy has no instructions dependant on the HC flag so bad behavior might be fine
+        self.cpu
+            .rf
+            .h_set((result & 0b0001_0000) != 0 && (original & 0b0000_1111) == 0b0000_1111);
+        //carry untouched
+
+        debug!("{log}");
+        return Ok(OPCODE_TIMINGS[opcode as usize]);
+    }
+
+    pub fn INC16(&mut self, opcode: u8) -> Result<usize, ExecutionError> {
+        self.cpu.rf.PC += 1;
+
+        let log = match opcode {
+            0x03 => {
+                self.cpu.rf.BC_write(self.cpu.rf.BC_read().wrapping_add(1));
+                "INC BC"
+            }
+            0x13 => {
+                self.cpu.rf.DE_write(self.cpu.rf.DE_read().wrapping_add(1));
+                "INC DE"
+            }
+            0x23 => {
+                self.cpu.rf.HL_write(self.cpu.rf.HL_read().wrapping_add(1));
+                "INC HL"
+            }
+            0x33 => {
+                self.cpu.rf.SP = self.cpu.rf.SP.wrapping_add(1);
+                "INC SP"
+            }
+            _ => unreachable!("crashing on an unreachable opcode in inc16"),
+        };
+
+        debug!("{log}");
+        return Ok(OPCODE_TIMINGS[opcode as usize]);
+    }
+    pub fn DEC16(&mut self, opcode: u8) -> Result<usize, ExecutionError> {
+        self.cpu.rf.PC += 1;
+
+        let log = match opcode {
+            0x0B => {
+                self.cpu.rf.BC_write(self.cpu.rf.BC_read().wrapping_sub(1));
+                "DEC BC"
+            }
+            0x1B => {
+                self.cpu.rf.DE_write(self.cpu.rf.DE_read().wrapping_sub(1));
+                "DEC DE"
+            }
+            0x2B => {
+                self.cpu.rf.HL_write(self.cpu.rf.HL_read().wrapping_sub(1));
+                "DEC HL"
+            }
+            0x3B => {
+                self.cpu.rf.SP = self.cpu.rf.SP.wrapping_sub(1);
+                "DEC SP"
+            }
+            _ => unreachable!("crashing on an unreachable opcode in dec16"),
+        };
 
         debug!("{log}");
         return Ok(OPCODE_TIMINGS[opcode as usize]);
@@ -665,14 +716,15 @@ impl System {
     pub fn CALL(&mut self, opcode: u8) -> Result<usize, ExecutionError> {
         self.cpu.rf.PC += 1;
 
+        let address_lower = self.read(self.cpu.rf.PC, 1)?[0];
+        let address_higher = self.read(self.cpu.rf.PC + 1, 1)?[0];
+        let address = ((address_higher as u16) << 8) | address_lower as u16;
+        self.cpu.rf.PC += 2;
+
         //CD imm unconditional
         let log = match opcode {
             //NZ
             0xC4 => {
-                let address_lower = self.read(self.cpu.rf.PC, 1)?[0];
-                let address_higher = self.read(self.cpu.rf.PC + 1, 1)?[0];
-                let address = ((address_higher as u16) << 8) & address_lower as u16;
-                self.cpu.rf.PC += 2;
                 //PC = address
                 if !self.cpu.rf.c_get() {
                     //write	PC:upper->(--SP)
@@ -687,10 +739,6 @@ impl System {
             }
             //NC
             0xD4 => {
-                let address_lower = self.read(self.cpu.rf.PC, 1)?[0];
-                let address_higher = self.read(self.cpu.rf.PC + 1, 1)?[0];
-                let address = ((address_higher as u16) << 8) & address_lower as u16;
-                self.cpu.rf.PC += 2;
                 //PC = address
                 if !self.cpu.rf.c_get() {
                     //write	PC:upper->(--SP)
@@ -705,10 +753,6 @@ impl System {
             }
             //Z
             0xCC => {
-                let address_lower = self.read(self.cpu.rf.PC, 1)?[0];
-                let address_higher = self.read(self.cpu.rf.PC + 1, 1)?[0];
-                let address = ((address_higher as u16) << 8) & address_lower as u16;
-                self.cpu.rf.PC += 2;
                 //PC = address
                 if self.cpu.rf.z_get() {
                     //write	PC:upper->(--SP)
@@ -723,12 +767,6 @@ impl System {
             }
             //C
             0xDC => {
-                let address_lower = self.read(self.cpu.rf.PC, 1)?[0];
-                let address_higher = self.read(self.cpu.rf.PC + 1, 1)?[0];
-
-                let address = ((address_higher as u16) << 8) & address_lower as u16;
-                self.cpu.rf.PC += 2;
-
                 //PC = address
                 if self.cpu.rf.c_get() {
                     //write	PC:upper->(--SP)
@@ -743,10 +781,10 @@ impl System {
             }
             //uncond
             0xCD => {
-                let address_lower = self.read(self.cpu.rf.PC, 1)?[0];
+                /*let address_lower = self.read(self.cpu.rf.PC, 1)?[0];
                 let address_higher = self.read(self.cpu.rf.PC + 1, 1)?[0];
                 let address: u16 = ((address_higher as u16) << 8) | (address_lower as u16);
-                self.cpu.rf.PC += 2;
+                self.cpu.rf.PC += 2;*/
 
                 debug!(
                     "high byte: {:#x}, low byte: {:#x}, full addr: {:#x}",
@@ -757,19 +795,696 @@ impl System {
 
                 //write	PC:upper->(--SP)
                 self.cpu.rf.SP = self.cpu.rf.SP.wrapping_sub(1);
-                self.write(self.cpu.rf.SP, &[((self.cpu.rf.PC & 0xF0) >> 4) as u8])?;
+                self.write(self.cpu.rf.SP, &[((self.cpu.rf.PC & 0xFF00) >> 8) as u8])?;
                 //write	PC:lower->(--SP)
                 self.cpu.rf.SP = self.cpu.rf.SP.wrapping_sub(1);
-                self.write(self.cpu.rf.SP, &[(self.cpu.rf.PC & 0x0F) as u8])?;
+                self.write(self.cpu.rf.SP, &[(self.cpu.rf.PC & 0xFF) as u8])?;
 
                 //PC = address
                 self.cpu.rf.PC = address;
-                format!("CALL u16 {}", address)
+                format!("CALL u16 {:#x}", address)
             }
             _ => unreachable!("crashing in CALL on bad opcode"),
         };
 
         debug!("{log}");
+        return Ok(OPCODE_TIMINGS[opcode as usize]);
+    }
+
+    pub fn MV(&mut self, opcode: u8) -> Result<usize, ExecutionError> {
+        self.cpu.rf.PC += 1;
+
+        let dst_mask = 0b0011_1000;
+        let src_mask = 0b000_0111;
+        let dst: Register8 = (((opcode & dst_mask) >> 3) as usize).try_into().unwrap();
+        let src: Register8 = ((opcode & src_mask) as usize).try_into().unwrap();
+
+        let log = format!("LD {}, {}", dst, src);
+
+        if dst == HLInd {
+            self.write(self.cpu.rf.HL_read(), &[self.cpu.rf[src]])?;
+        } else if src == HLInd {
+            self.cpu.rf[dst] = self.read(self.cpu.rf.HL_read(), 1)?[0];
+        } else {
+            self.cpu.rf[dst] = self.cpu.rf[src];
+        }
+
+        debug!("{log}");
+        return Ok(OPCODE_TIMINGS[opcode as usize]);
+    }
+
+    pub fn PUSH(&mut self, opcode: u8) -> Result<usize, ExecutionError> {
+        self.cpu.rf.PC += 1;
+
+        let reg_pair: (Register8, Register8) = if opcode == 0xC5 {
+            (B, C)
+        } else if opcode == 0xD5 {
+            (D, E)
+        } else if opcode == 0xE5 {
+            (H, L)
+        } else
+        //if opcode == 0xF5 {
+        {
+            (A, F)
+        };
+
+        self.cpu.rf.SP = self.cpu.rf.SP.wrapping_sub(1);
+        self.write(self.cpu.rf.SP, &[self.cpu.rf[reg_pair.0]])?;
+        self.cpu.rf.SP = self.cpu.rf.SP.wrapping_sub(1);
+        self.write(self.cpu.rf.SP, &[self.cpu.rf[reg_pair.1]])?;
+
+        let log = format!("PUSH {}{}", reg_pair.0, reg_pair.1);
+        debug!("{log}");
+        return Ok(OPCODE_TIMINGS[opcode as usize]);
+    }
+
+    pub fn POP(&mut self, opcode: u8) -> Result<usize, ExecutionError> {
+        self.cpu.rf.PC += 1;
+
+        let reg_pair: (Register8, Register8) = if opcode == 0xC5 {
+            (B, C)
+        } else if opcode == 0xD5 {
+            (D, E)
+        } else if opcode == 0xE5 {
+            (H, L)
+        } else
+        //if opcode == 0xF5 {
+        {
+            (A, F)
+        };
+
+        self.cpu.rf[reg_pair.1] = self.read(self.cpu.rf.SP, 1)?[0];
+        self.cpu.rf[reg_pair.0] = self.read(self.cpu.rf.SP, 1)?[0];
+        self.cpu.rf.SP = self.cpu.rf.SP.wrapping_add(2);
+
+        let log = format!("POP {}{}", reg_pair.1, reg_pair.0);
+        debug!("{log}");
+
+        return Ok(OPCODE_TIMINGS[opcode as usize]);
+    }
+
+    pub fn RLC(&mut self, opcode: u8) -> Result<usize, ExecutionError> {
+        self.cpu.rf.PC += 1;
+
+        let reg_mask = 0b0000_0111;
+        let reg: Register8 = ((opcode & reg_mask) as usize).try_into().unwrap();
+
+        if reg == HLInd {
+            //we are operating in memory
+            let init_val = self.read(self.cpu.rf.HL_read(), 1)?[0];
+            self.cpu.rf.c_set((init_val & 0b1000_0000) != 0);
+            let new_val = init_val.rotate_left(1);
+            self.cpu.rf.z_set(new_val == 0);
+            self.write(self.cpu.rf.HL_read(), &[new_val])?;
+        } else {
+            self.cpu.rf.c_set((self.cpu.rf[reg] & 0b1000_0000) != 0);
+            self.cpu.rf[reg] = self.cpu.rf[reg].rotate_left(1);
+            self.cpu.rf.z_set(self.cpu.rf[reg] == 0);
+        }
+
+        let log = format!("RLC {}", reg);
+        debug!("{log}");
+
+        return Ok(CB_OPCODE_TIMINGS[opcode as usize]);
+    }
+    pub fn RRC(&mut self, opcode: u8) -> Result<usize, ExecutionError> {
+        self.cpu.rf.PC += 1;
+
+        let reg_mask = 0b0000_0111;
+        let reg: Register8 = ((opcode & reg_mask) as usize).try_into().unwrap();
+
+        if reg == HLInd {
+            //we are operating in memory
+            let init_val = self.read(self.cpu.rf.HL_read(), 1)?[0];
+            self.cpu.rf.c_set((init_val & 0b0000_0001) != 0);
+            let new_val = init_val.rotate_right(1);
+            self.cpu.rf.z_set(new_val == 0);
+            self.write(self.cpu.rf.HL_read(), &[new_val])?;
+        } else {
+            self.cpu.rf.c_set((self.cpu.rf[reg] & 0b0000_0001) != 0);
+            self.cpu.rf[reg] = self.cpu.rf[reg].rotate_right(1);
+            self.cpu.rf.z_set(self.cpu.rf[reg] == 0);
+        }
+
+        let log = format!("RRC {}", reg);
+        debug!("{log}");
+
+        return Ok(CB_OPCODE_TIMINGS[opcode as usize]);
+    }
+    pub fn RL(&mut self, opcode: u8) -> Result<usize, ExecutionError> {
+        self.cpu.rf.PC += 1;
+
+        let reg_mask = 0b0000_0111;
+        let reg: Register8 = ((opcode & reg_mask) as usize).try_into().unwrap();
+
+        if reg == HLInd {
+            //we are operating in memory
+            let mut initial_value = self.read(self.cpu.rf.HL_read(), 1)?[0];
+            initial_value <<= 1;
+            initial_value |= if self.cpu.rf.c_get() { 0x1 } else { 0x0 };
+            self.cpu.rf.z_set(initial_value == 0);
+            self.write(self.cpu.rf.HL_read(), &[initial_value])?;
+        } else {
+            self.cpu.rf[reg] <<= 1;
+            self.cpu.rf[reg] |= if self.cpu.rf.c_get() { 0x1 } else { 0x0 };
+            self.cpu.rf.z_set(self.cpu.rf[reg] == 0);
+        }
+
+        let log = format!("RL {}", reg);
+        debug!("{log}");
+
+        return Ok(CB_OPCODE_TIMINGS[opcode as usize]);
+    }
+    pub fn RR(&mut self, opcode: u8) -> Result<usize, ExecutionError> {
+        self.cpu.rf.PC += 1;
+
+        let reg_mask = 0b0000_0111;
+        let reg: Register8 = ((opcode & reg_mask) as usize).try_into().unwrap();
+
+        if reg == HLInd {
+            //we are operating in memory
+            let mut initial_value = self.read(self.cpu.rf.HL_read(), 1)?[0];
+            initial_value >>= 1;
+            initial_value |= if self.cpu.rf.c_get() {
+                0b1000_0000
+            } else {
+                0x0
+            };
+            self.cpu.rf.z_set(initial_value == 0);
+        } else {
+            self.cpu.rf[reg] <<= 1;
+            self.cpu.rf[reg] |= if self.cpu.rf.c_get() {
+                0b1000_0000
+            } else {
+                0x0
+            };
+            self.cpu.rf.z_set(self.cpu.rf[reg] == 0);
+        }
+
+        let log = format!("RR {}", reg);
+        debug!("{log}");
+
+        return Ok(CB_OPCODE_TIMINGS[opcode as usize]);
+    }
+    pub fn SLA(&mut self, opcode: u8) -> Result<usize, ExecutionError> {
+        self.cpu.rf.PC += 1;
+
+        let reg_mask = 0b0000_0111;
+        let reg: Register8 = ((opcode & reg_mask) as usize).try_into().unwrap();
+
+        if reg == HLInd {
+            //we are operating in memory
+            let init_val = self.read(self.cpu.rf.HL_read(), 1)?[0];
+            self.cpu.rf.c_set((init_val & 0b1000_0000) != 0);
+            let new_val = init_val << 1;
+            self.cpu.rf.z_set(new_val == 0);
+            self.write(self.cpu.rf.HL_read(), &[new_val])?;
+        } else {
+            self.cpu.rf.c_set((self.cpu.rf[reg] & 0b1000_0000) != 0);
+            self.cpu.rf[reg] <<= 0;
+            self.cpu.rf.z_set(self.cpu.rf[reg] == 0);
+        }
+
+        let log = format!("SLA {}", reg);
+        debug!("{log}");
+
+        return Ok(CB_OPCODE_TIMINGS[opcode as usize]);
+    }
+    pub fn SRA(&mut self, opcode: u8) -> Result<usize, ExecutionError> {
+        self.cpu.rf.PC += 1;
+
+        let reg_mask = 0b0000_0111;
+        let reg: Register8 = ((opcode & reg_mask) as usize).try_into().unwrap();
+
+        if reg == HLInd {
+            //we are operating in memory
+            let init_val = self.read(self.cpu.rf.HL_read(), 1)?[0];
+            self.cpu.rf.c_set((init_val & 0b1000_0000) != 0);
+            let new_val = (init_val as i8 >> 1) as u8;
+            self.cpu.rf.z_set(new_val == 0);
+            self.write(self.cpu.rf.HL_read(), &[new_val])?;
+        } else {
+            self.cpu.rf.c_set((self.cpu.rf[reg] & 0b1000_0000) != 0);
+            self.cpu.rf[reg] = ((self.cpu.rf[reg] as i8) >> 1) as u8;
+            self.cpu.rf.z_set(self.cpu.rf[reg] == 0);
+        }
+
+        let log = format!("SRA {}", reg);
+        debug!("{log}");
+
+        return Ok(CB_OPCODE_TIMINGS[opcode as usize]);
+    }
+    pub fn SWAP(&mut self, opcode: u8) -> Result<usize, ExecutionError> {
+        self.cpu.rf.PC += 1;
+
+        let reg_mask = 0b0000_0111;
+        let reg: Register8 = ((opcode & reg_mask) as usize).try_into().unwrap();
+
+        if reg == HLInd {
+            //we are operating in memory
+            let init_val = self.read(self.cpu.rf.HL_read(), 1)?[0];
+            let new_val = (init_val & 0x0F) << 4 | (init_val & 0xF0) >> 4;
+            self.cpu.rf.z_set(new_val == 0);
+            self.write(self.cpu.rf.HL_read(), &[new_val])?;
+        } else {
+            self.cpu.rf[reg] = (self.cpu.rf[reg] & 0x0f) << 4 | (self.cpu.rf[reg] & 0xf0) >> 4;
+            self.cpu.rf.z_set(self.cpu.rf[reg] == 0);
+        }
+
+        let log = format!("SWAP {}", reg);
+        debug!("{log}");
+
+        return Ok(CB_OPCODE_TIMINGS[opcode as usize]);
+    }
+    pub fn SRL(&mut self, opcode: u8) -> Result<usize, ExecutionError> {
+        self.cpu.rf.PC += 1;
+
+        let reg_mask = 0b0000_0111;
+        let reg: Register8 = ((opcode & reg_mask) as usize).try_into().unwrap();
+
+        if reg == HLInd {
+            //we are operating in memory
+            let init_val = self.read(self.cpu.rf.HL_read(), 1)?[0];
+            self.cpu.rf.c_set((init_val & 0b1000_0000) != 0);
+            let new_val = init_val >> 1;
+            self.cpu.rf.z_set(new_val == 0);
+            self.write(self.cpu.rf.HL_read(), &[new_val])?;
+        } else {
+            self.cpu.rf.c_set((self.cpu.rf[reg] & 0b1000_0000) != 0);
+            self.cpu.rf[reg] = self.cpu.rf[reg] >> 1;
+            self.cpu.rf.z_set(self.cpu.rf[reg] == 0);
+        }
+
+        let log = format!("SRL {}", reg);
+        debug!("{log}");
+
+        return Ok(CB_OPCODE_TIMINGS[opcode as usize]);
+    }
+    pub fn RES(&mut self, opcode: u8) -> Result<usize, ExecutionError> {
+        //step past the op we just fetched
+        self.cpu.rf.PC += 1;
+
+        //Shoutout Jarrett for noticing this neat encoding pattern
+
+        let testing_bit = (opcode & 0b0011_1000) >> 3;
+        //println!("testing bit {}", testing_bit);
+        let bit_mask = 2_u32.pow((testing_bit) as u32);
+        //println!("bitmask: {:b}", bit_mask);
+        let reg = opcode & 0b0000_0111;
+        let reg: crate::cpu::Register8 = (reg as usize).try_into().unwrap();
+
+        let log = format!("RES {},{}", testing_bit, reg);
+
+        self.cpu.rf[reg] &= !(<u32 as TryInto<u8>>::try_into(bit_mask).unwrap());
+
+        debug!("{log}");
+
+        return Ok(CB_OPCODE_TIMINGS[opcode as usize]);
+    }
+    pub fn SET(&mut self, opcode: u8) -> Result<usize, ExecutionError> {
+        //step past the op we just fetched
+        self.cpu.rf.PC += 1;
+
+        //Shoutout Jarrett for noticing this neat encoding pattern
+
+        let testing_bit = (opcode & 0b0011_1000) >> 3;
+        //println!("testing bit {}", testing_bit);
+        let bit_mask = 2_u32.pow((testing_bit) as u32);
+        //println!("bitmask: {:b}", bit_mask);
+        let reg = opcode & 0b0000_0111;
+        let reg: crate::cpu::Register8 = (reg as usize).try_into().unwrap();
+
+        let log = format!("RES {},{}", testing_bit, reg);
+
+        self.cpu.rf[reg] |= <u32 as TryInto<u8>>::try_into(bit_mask).unwrap();
+
+        debug!("{log}");
+
+        return Ok(CB_OPCODE_TIMINGS[opcode as usize]);
+    }
+    pub fn BIT(&mut self, opcode: u8) -> Result<usize, ExecutionError> {
+        //step past the op we just fetched
+        self.cpu.rf.PC += 1;
+
+        //Shoutout Jarrett for noticing this neat encoding pattern
+
+        let testing_bit = (opcode & 0b0011_1000) >> 3;
+        //println!("testing bit {}", testing_bit);
+        let bit_mask = 2_u32.pow((testing_bit) as u32);
+        //println!("bitmask: {:b}", bit_mask);
+        let reg = opcode & 0b0000_0111;
+        let reg: crate::cpu::Register8 = (reg as usize).try_into().unwrap();
+        /*println!(
+            "register: {} with value {:x}  {:b}",
+            reg, self.cpu.rf[reg], self.cpu.rf[reg]
+        );*/
+
+        let log = format!("BIT {},{}", testing_bit, reg);
+
+        let result = (self.cpu.rf[reg] as u32 & bit_mask) >> testing_bit == 1;
+        //println!("result says {}", result);
+
+        self.cpu.rf.z_set(!result);
+        self.cpu.rf.n_set(false);
+        self.cpu.rf.h_set(true);
+        //do not touch carry
+
+        // self.comms.log_tx.send(log).unwrap();
+        debug!("{log}");
+
+        return Ok(CB_OPCODE_TIMINGS[opcode as usize]);
+    }
+
+    pub fn RLCA(&mut self, opcode: u8) -> Result<usize, ExecutionError> {
+        self.cpu.rf.PC += 1;
+
+        self.cpu.rf.c_set((self.cpu.rf[A] & 0b1000_0000) != 0);
+        self.cpu.rf[A] = self.cpu.rf[A].rotate_left(1);
+        self.cpu.rf.z_set(false);
+        self.cpu.rf.h_set(false);
+        self.cpu.rf.n_set(false);
+
+        let log = format!("RLCA");
+        debug!("{log}");
+
+        return Ok(OPCODE_TIMINGS[opcode as usize]);
+    }
+
+    pub fn RLA(&mut self, opcode: u8) -> Result<usize, ExecutionError> {
+        self.cpu.rf.PC += 1;
+
+        self.cpu.rf[A] <<= 1;
+        self.cpu.rf[A] |= if self.cpu.rf.c_get() { 0x1 } else { 0x0 };
+        self.cpu.rf.z_set(self.cpu.rf[A] == 0);
+
+        let log = format!("RL A");
+        debug!("{log}");
+
+        return Ok(CB_OPCODE_TIMINGS[opcode as usize]);
+    }
+
+    pub fn RET(&mut self, opcode: u8) -> Result<usize, ExecutionError> {
+        self.cpu.rf.PC += 1;
+
+        let possible_low = self.read(self.cpu.rf.SP, 1)?[0];
+        let possible_high = self.read(self.cpu.rf.SP + 1, 1)?[0];
+        let possible_addr = (possible_high as u16) << 8 | possible_low as u16;
+        debug!(
+            "possible_low: {:#02x}, possible high: {:#02x}, possible addr: {:#04x}",
+            possible_low, possible_high, possible_addr
+        );
+
+        let (log, take) = if opcode == 0xC0 {
+            ("RET NZ", !self.cpu.rf.z_get())
+        } else if opcode == 0xD0 {
+            ("RET NC", !self.cpu.rf.c_get())
+        } else if opcode == 0xC8 {
+            ("RET Z", self.cpu.rf.z_get())
+        } else if opcode == 0xD8 {
+            ("RET C", self.cpu.rf.c_get())
+        } else if opcode == 0xC9 {
+            //TODO: RETI stuff here
+            ("RET", true)
+        } else {
+            ("RET", true)
+        };
+
+        if take {
+            self.cpu.rf.PC = possible_addr;
+            self.cpu.rf.SP = self.cpu.rf.SP.wrapping_add(2);
+        }
+
+        debug!("{log} {:#4x}", possible_addr);
+
+        return Ok(OPCODE_TIMINGS[opcode as usize]);
+    }
+
+    pub fn ADD(&mut self, opcode: u8) -> Result<usize, ExecutionError> {
+        self.cpu.rf.PC += 1;
+
+        let reg_mask = 0b0011_1000;
+        let reg: Register8 = (((opcode & reg_mask) >> 3) as usize).try_into().unwrap();
+
+        let val = if reg == HLInd {
+            self.read(self.cpu.rf.HL_read(), 1)?[0]
+        } else if opcode & 0xF == 0x6 {
+            let v = self.read(self.cpu.rf.PC, 1)?[0];
+            self.cpu.rf.PC += 1;
+            v
+        } else {
+            self.cpu.rf[reg]
+        };
+
+        let result = self.cpu.rf[A].wrapping_add(val);
+        self.cpu.rf[A] = result;
+        self.cpu.rf.z_set(result == 0);
+        self.cpu.rf.n_set(false);
+        //self.cpu.rf.h_set(val);
+        //self.cpu.rf.c_set(self.cpu.rf.c_get());
+
+        debug!("ADD A, {}", reg);
+
+        return Ok(OPCODE_TIMINGS[opcode as usize]);
+    }
+    pub fn ADC(&mut self, opcode: u8) -> Result<usize, ExecutionError> {
+        self.cpu.rf.PC += 1;
+
+        let reg_mask = 0b0011_1000;
+        let reg: Register8 = (((opcode & reg_mask) >> 3) as usize).try_into().unwrap();
+
+        let val = if reg == HLInd {
+            self.read(self.cpu.rf.HL_read(), 1)?[0]
+        } else if opcode & 0xF == 0xE {
+            let v = self.read(self.cpu.rf.PC, 1)?[0];
+            self.cpu.rf.PC += 1;
+            v
+        } else {
+            self.cpu.rf[reg]
+        };
+
+        let (result, carry) = self.cpu.rf[A].carrying_add(val, self.cpu.rf.c_get());
+        self.cpu.rf[A] = result;
+        self.cpu.rf.z_set(result == 0);
+        self.cpu.rf.n_set(false);
+        //self.cpu.rf.h_set(val);
+        self.cpu.rf.c_set(carry);
+
+        debug!("ADC A, {}", reg);
+
+        return Ok(OPCODE_TIMINGS[opcode as usize]);
+    }
+    pub fn SUB(&mut self, opcode: u8) -> Result<usize, ExecutionError> {
+        self.cpu.rf.PC += 1;
+
+        let reg_mask = 0b0011_1000;
+        let reg: Register8 = (((opcode & reg_mask) >> 3) as usize).try_into().unwrap();
+
+        let val = if reg == HLInd {
+            self.read(self.cpu.rf.HL_read(), 1)?[0]
+        } else if opcode & 0xF == 0x6 {
+            let v = self.read(self.cpu.rf.PC, 1)?[0];
+            self.cpu.rf.PC += 1;
+            v
+        } else {
+            self.cpu.rf[reg]
+        };
+
+        let result = self.cpu.rf[A].wrapping_sub(val);
+        self.cpu.rf[A] = result;
+        self.cpu.rf.z_set(result == 0);
+        self.cpu.rf.n_set(true);
+        //self.cpu.rf.h_set(val);
+        //self.cpu.rf.c_set(self.cpu.rf.c_get());
+
+        debug!("SUB {}", reg);
+
+        return Ok(OPCODE_TIMINGS[opcode as usize]);
+    }
+    pub fn SBC(&mut self, opcode: u8) -> Result<usize, ExecutionError> {
+        self.cpu.rf.PC += 1;
+
+        let reg_mask = 0b0011_1000;
+        let reg: Register8 = (((opcode & reg_mask) >> 3) as usize).try_into().unwrap();
+
+        let val = if reg == HLInd {
+            self.read(self.cpu.rf.HL_read(), 1)?[0]
+        } else if opcode & 0xF == 0xE {
+            let v = self.read(self.cpu.rf.PC, 1)?[0];
+            self.cpu.rf.PC += 1;
+            v
+        } else {
+            self.cpu.rf[reg]
+        };
+
+        let (result, carry) = self.cpu.rf[A].borrowing_sub(val, self.cpu.rf.c_get());
+        self.cpu.rf[A] = result;
+        self.cpu.rf.z_set(result == 0);
+        self.cpu.rf.n_set(true);
+        //self.cpu.rf.h_set(val);
+        self.cpu.rf.c_set(carry);
+
+        debug!("SBC A, {}", reg);
+
+        return Ok(OPCODE_TIMINGS[opcode as usize]);
+    }
+    pub fn AND(&mut self, opcode: u8) -> Result<usize, ExecutionError> {
+        self.cpu.rf.PC += 1;
+
+        let reg_mask = 0b0011_1000;
+        let reg: Register8 = (((opcode & reg_mask) >> 3) as usize).try_into().unwrap();
+
+        let val = if reg == HLInd {
+            self.read(self.cpu.rf.HL_read(), 1)?[0]
+        } else if opcode & 0xF == 0x6 {
+            let v = self.read(self.cpu.rf.PC, 1)?[0];
+            self.cpu.rf.PC += 1;
+            v
+        } else {
+            self.cpu.rf[reg]
+        };
+
+        let result = self.cpu.rf[A] & val;
+        self.cpu.rf[A] = result;
+
+        self.cpu.rf.z_set(result == 0);
+        self.cpu.rf.n_set(false);
+        self.cpu.rf.h_set(true);
+        self.cpu.rf.c_set(false);
+
+        debug!("AND {}", reg);
+
+        return Ok(OPCODE_TIMINGS[opcode as usize]);
+    }
+    pub fn XOR(&mut self, opcode: u8) -> Result<usize, ExecutionError> {
+        //step past the opcode we fetched
+        self.cpu.rf.PC += 1;
+
+        let (log, result) = match opcode {
+            //B
+            0xA8 => ("XOR B".to_owned(), self.cpu.rf.A ^ self.cpu.rf.B),
+            //C
+            0xA9 => ("XOR C".to_owned(), self.cpu.rf.A ^ self.cpu.rf.C),
+            //D
+            0xAA => ("XOR D".to_owned(), self.cpu.rf.A ^ self.cpu.rf.D),
+            //E
+            0xAB => ("XOR E".to_owned(), self.cpu.rf.A ^ self.cpu.rf.E),
+            //H
+            0xAC => ("XOR H".to_owned(), self.cpu.rf.A ^ self.cpu.rf.H),
+            //L
+            0xAD => ("XOR L".to_owned(), self.cpu.rf.A ^ self.cpu.rf.L),
+            //(HL)
+            0xAE => {
+                let data = self.read(self.cpu.rf.HL_read(), 1)?[0];
+
+                ("XOR (HL)".to_owned(), self.cpu.rf.A ^ data)
+            }
+            //A
+            0xAF => ("XOR A".to_owned(), self.cpu.rf.A ^ self.cpu.rf.A),
+            //imm
+            0xEE => {
+                let data = self.read(self.cpu.rf.PC, 1)?[0];
+                //dont forget to step another byte since we are using an immeadiate
+                self.cpu.rf.PC += 1;
+                (format!("XOR d8 [{:x}]", data), self.cpu.rf.A ^ data)
+            }
+            _ => unreachable!(
+                "panicking in XOR becuase we somehow decided to execute an op that doesnt exist"
+            ),
+        };
+        self.cpu.rf.A = result;
+        //self.comms.log_tx.send(log).unwrap();
+
+        debug!("{log}");
+
+        self.cpu.rf.z_set(self.cpu.rf.A == 0);
+        self.cpu.rf.n_set(false);
+        self.cpu.rf.h_set(false);
+        self.cpu.rf.c_set(false);
+
+        return Ok(OPCODE_TIMINGS[opcode as usize]);
+    }
+    pub fn OR(&mut self, opcode: u8) -> Result<usize, ExecutionError> {
+        self.cpu.rf.PC += 1;
+
+        let reg_mask = 0b0011_1000;
+        let reg: Register8 = (((opcode & reg_mask) >> 3) as usize).try_into().unwrap();
+
+        let val = if reg == HLInd {
+            self.read(self.cpu.rf.HL_read(), 1)?[0]
+        } else if opcode & 0xF == 0x6 {
+            let v = self.read(self.cpu.rf.PC, 1)?[0];
+            self.cpu.rf.PC += 1;
+            v
+        } else {
+            self.cpu.rf[reg]
+        };
+
+        let result = self.cpu.rf[A] & val;
+        self.cpu.rf[A] = result;
+
+        self.cpu.rf.z_set(result == 0);
+        self.cpu.rf.n_set(false);
+        self.cpu.rf.h_set(false);
+        self.cpu.rf.c_set(false);
+
+        debug!("OR {}", reg);
+
+        return Ok(OPCODE_TIMINGS[opcode as usize]);
+    }
+    pub fn CP(&mut self, opcode: u8) -> Result<usize, ExecutionError> {
+        self.cpu.rf.PC += 1;
+
+        let reg_mask = 0b0011_1000;
+        let reg: Register8 = (((opcode & reg_mask) >> 3) as usize).try_into().unwrap();
+
+        let val = if reg == HLInd {
+            self.read(self.cpu.rf.HL_read(), 1)?[0]
+        } else if opcode & 0xF == 0xE {
+            let v = self.read(self.cpu.rf.PC, 1)?[0];
+            self.cpu.rf.PC += 1;
+            v
+        } else {
+            self.cpu.rf[reg]
+        };
+
+        let result = self.cpu.rf[reg].wrapping_sub(val);
+
+        self.cpu.rf.z_set(result == 0);
+        self.cpu.rf.n_set(true);
+        //self.cpu.rf.h_set(false);
+        //self.cpu.rf.c_set(false);
+
+        debug!("CP {}", reg);
+
+        return Ok(OPCODE_TIMINGS[opcode as usize]);
+    }
+
+    pub fn STRA16(&mut self, opcode: u8) -> Result<usize, ExecutionError> {
+        self.cpu.rf.PC += 1;
+
+        let lower = self.read(self.cpu.rf.PC, 1)?[0];
+        let upper = self.read(self.cpu.rf.PC + 1, 1)?[0];
+        self.cpu.rf.PC += 2;
+        let address = (upper as u16) << 8 | lower as u16;
+
+        self.write(address, &[self.cpu.rf.A])?;
+
+        debug!("LD (u16), A");
+
+        return Ok(OPCODE_TIMINGS[opcode as usize]);
+    }
+    pub fn LDA16(&mut self, opcode: u8) -> Result<usize, ExecutionError> {
+        self.cpu.rf.PC += 1;
+
+        let lower = self.read(self.cpu.rf.PC, 1)?[0];
+        let upper = self.read(self.cpu.rf.PC + 1, 1)?[0];
+        self.cpu.rf.PC += 2;
+        let address = (upper as u16) << 8 | lower as u16;
+
+        self.cpu.rf[A] = self.read(address, 1)?[0];
+
+        debug!("LD A, (u16)");
+
         return Ok(OPCODE_TIMINGS[opcode as usize]);
     }
 }

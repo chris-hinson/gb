@@ -22,7 +22,7 @@ impl std::fmt::Display for Cpu {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Register8 {
     A,
     F,
@@ -32,6 +32,7 @@ pub enum Register8 {
     E,
     H,
     L,
+    HLInd,
 }
 impl TryFrom<usize> for Register8 {
     type Error = &'static str;
@@ -50,7 +51,7 @@ impl TryFrom<usize> for Register8 {
             //L
             0x5 => Ok(L),
             //(HL)
-            0x6 => Err("indirect HL encoding"),
+            0x6 => Ok(HLInd),
             //
             0x7 => Ok(A),
             _ => panic!("cannot convert this usize to an r8"),
@@ -69,6 +70,7 @@ impl std::fmt::Display for Register8 {
             H => write!(f, "H"),
             L => write!(f, "L"),
             F => write!(f, "F"),
+            HLInd => write!(f, "(HL)"),
         }
     }
 }
@@ -78,7 +80,6 @@ pub enum Register16 {
     BC,
     DE,
     HL,
-    HLInd,
     SP,
     PC,
 }
@@ -96,6 +97,7 @@ impl std::ops::Index<Register8> for RegisterFile {
             Register8::E => &self.E,
             Register8::H => &self.H,
             Register8::L => &self.L,
+            HLInd => panic!("cannot index rf by hlind"),
         }
     }
 }
@@ -111,6 +113,7 @@ impl std::ops::IndexMut<Register8> for RegisterFile {
             Register8::E => &mut self.E,
             Register8::H => &mut self.H,
             Register8::L => &mut self.L,
+            HLInd => panic!("cannot index rf by hlind"),
         }
     }
 }

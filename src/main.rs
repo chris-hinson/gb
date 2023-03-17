@@ -1,3 +1,5 @@
+#![feature(bigint_helper_methods)]
+
 use crate::cart::Cart;
 use crate::cpu::Cpu;
 use eframe::egui;
