@@ -157,7 +157,7 @@ impl eframe::App for App {
         }
 
         //update all of our memory views
-        let mut sys = self.system_mutex.lock().unwrap();
+        /*let mut sys = self.system_mutex.lock().unwrap();
         unsafe {
             //copy in VRAM
             let src_ptr = sys.vram.as_ptr();
@@ -170,7 +170,7 @@ impl eframe::App for App {
             let dst_ptr = self.dummy_memory.as_mut_ptr();
             std::ptr::copy_nonoverlapping(src_ptr, dst_ptr, bank.len());
         }
-        drop(sys);
+        drop(sys);*/
 
         //log area
         //-----------------------------------------------------------------------------------------

@@ -41,7 +41,7 @@ struct CartHeader {
     00 08 11 1F 88 89 00 0E DC CC 6E E6 DD DD D9 99
     BB BB 67 63 6E 0E EC CC DD DC 99 9F BB B9 33 3E
     */
-    logo: [u8; (0x0133 - 0x0104)],
+    logo: [u8; (0x0134 - 0x0104)],
     /*
     0134-0143 — Title
 
@@ -49,13 +49,13 @@ struct CartHeader {
 
     Parts of this area actually have a different meaning on later cartridges, reducing the actual title size to 15 ($0134–$0142) or 11 ($0134–$013E) characters; see below.
     */
-    title: [u8; (0x0143 - 0x134)],
+    title: [u8; (0x0144 - 0x134)],
     /*013F-0142 — Manufacturer code
 
     In older cartridges these bytes were part of the Title (see above). In newer cartridges they contain a 4-character manufacturer code (in uppercase ASCII). The purpose of the manufacturer code is unknown.
 
     */
-    man_code: [u8; (0x0142 - 0x013F)],
+    man_code: [u8; (0x0143 - 0x013F)],
     /*0143 — CGB flag
 
     In older cartridges this byte was part of the Title (see above). The CGB and later models interpret this byte to decide whether to enable Color mode (“CGB Mode”) or to fall back to monochrome compatibility mode (“Non-CGB Mode”).
@@ -75,7 +75,7 @@ struct CartHeader {
     0144-0145 — New licensee code
     This area contains a two-character ASCII “licensee code” indicating the game’s publisher. It is only meaningful if the Old licensee is exactly $33 (which is the case for essentially all games made after the SGB was released); otherwise, the old code must be considered.
     */
-    new_lic_code: [u8; (0x0145 - 0x0144)],
+    new_lic_code: [u8; (0x0146 - 0x0144)],
     /*
     0146 — SGB flag
 
@@ -201,17 +201,17 @@ impl CartHeader {
             entry_point: contents[0x0100 - 0x0100..=0x0103 - 0x0100]
                 .try_into()
                 .unwrap(),
-            logo: contents[0x0104 - 0x0100..0x0133 - 0x0100]
+            logo: contents[0x0104 - 0x0100..=0x0133 - 0x0100]
                 .try_into()
                 .unwrap(),
-            title: contents[0x0134 - 0x0100..0x0143 - 0x0100]
+            title: contents[0x0134 - 0x0100..=0x0143 - 0x0100]
                 .try_into()
                 .unwrap(),
-            man_code: contents[0x013F - 0x0100..0x0142 - 0x0100]
+            man_code: contents[0x013F - 0x0100..=0x0142 - 0x0100]
                 .try_into()
                 .unwrap(),
             cgb: contents[0x0143 - 0x0100],
-            new_lic_code: contents[0x0144 - 0x0100..0x0145 - 0x0100]
+            new_lic_code: contents[0x0144 - 0x0100..=0x0145 - 0x0100]
                 .try_into()
                 .unwrap(),
             sgb_flag: contents[0x0146 - 0x0100],
@@ -258,8 +258,123 @@ impl CartHeader {
 
 impl Cart {
     pub fn read(&mut self, address: u16, len: usize) -> Result<Vec<u8>, ExecutionError> {
-        warn!("reading from cart which is stubbed to just give back 0x00");
-        return Ok(vec![0; len]);
+        let value = match address {
+            //0100-0103 — Entry point
+            0x0100..=0x0103 => {
+                if len > 4 {
+                    return Err(ExecutionError::IllegalRead(address as usize));
+                }
+                self.header.entry_point[address as usize..address as usize + len].to_vec()
+            }
+            //nintendo logo
+            0x0104..=0x0133 => {
+                let address: usize = (address - 0x0104) as usize;
+                self.header.logo[address..address + len as usize].to_vec()
+            }
+            //0134-0143 — Title
+            0x0134..=0x0143 => {
+                if len > (0x0144 - 0x0134) {
+                    return Err(ExecutionError::IllegalRead(address as usize));
+                }
+                let address: usize = (address - 0x0134) as usize;
+                self.header.title[address..address + len].to_vec()
+            }
+            //013F-0142 — Manufacturer code
+            //NOTE: you will need to fix this unreachable pattern based on mapper type somehow
+            0x013F..=0x0142 => {
+                if len > (0x0143 - 0x013F) {
+                    return Err(ExecutionError::IllegalRead(address as usize));
+                }
+                let address: usize = (address - 0x013F) as usize;
+                self.header.man_code[address..address + len].to_vec()
+            }
+            //0143 — CGB flag
+            //NOTE: same as above
+            0x0143 => {
+                if len > 1 {
+                    return Err(ExecutionError::IllegalRead(address as usize));
+                }
+                vec![self.header.cgb]
+            }
+            //0144-0145 — New licensee code
+            0x0144..=0x0145 => {
+                if len > (0x0146 - 0x0144) {
+                    return Err(ExecutionError::IllegalRead(address as usize));
+                }
+                let address: usize = (address - 0x0144) as usize;
+                self.header.new_lic_code[address..address + len].to_vec()
+            }
+            //0146 — SGB flag
+            0x0146 => {
+                if len > 1 {
+                    return Err(ExecutionError::IllegalRead(address as usize));
+                }
+                vec![self.header.sgb_flag]
+            }
+            //0147 — Cartridge type
+            0x0147 => {
+                if len > 1 {
+                    return Err(ExecutionError::IllegalRead(address as usize));
+                }
+                vec![self.header.cart_type]
+            }
+            //0148 — ROM size
+            0x0148 => {
+                if len > 1 {
+                    return Err(ExecutionError::IllegalRead(address as usize));
+                }
+                vec![self.header.rom_size]
+            }
+            //0149 — RAM size
+            0x0149 => {
+                if len > 1 {
+                    return Err(ExecutionError::IllegalRead(address as usize));
+                }
+                vec![self.header.ram_size]
+            }
+            //014A — Destination code
+            0x014A => {
+                if len > 1 {
+                    return Err(ExecutionError::IllegalRead(address as usize));
+                }
+                vec![self.header.dest_code]
+            }
+            //014B — Old licensee code
+            0x014B => {
+                if len > 1 {
+                    return Err(ExecutionError::IllegalRead(address as usize));
+                }
+                vec![self.header.old_lic_code]
+            }
+            //014C — Mask ROM version number
+            0x014C => {
+                if len > 1 {
+                    return Err(ExecutionError::IllegalRead(address as usize));
+                }
+                vec![self.header.rom_version]
+            }
+            //014D — Header checksum
+            0x014D => {
+                if len > 1 {
+                    return Err(ExecutionError::IllegalRead(address as usize));
+                }
+                vec![self.header.header_checksum]
+            }
+            //014E-014F — Global checksum
+            0x014E..=0x14F => {
+                if len > (0x150 - 0x14E) {
+                    return Err(ExecutionError::IllegalRead(address as usize));
+                }
+                let address: usize = (address - 0x014E) as usize;
+                self.header.global_checksum[address..address + len].to_vec()
+            }
+            _ => {
+                warn!("reading from cart region which is stubbed to just give back 0x00");
+                //return Err(ExecutionError::IllegalRead(address as usize));
+                vec![0; len]
+            }
+        };
+        return Ok(value.to_vec());
     }
 
     pub fn write(&mut self, address: u16, data: &[u8]) -> Result<usize, ExecutionError> {

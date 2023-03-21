@@ -137,7 +137,7 @@ impl System {
         }
     }
 
-    pub fn run(&mut self) {
+    /*pub fn run(&mut self) {
         //1 loop iter = 1 M? cycle
         'running: loop {
             //see if we have gotten any commands from the frontend, and process and parse them if so
@@ -167,7 +167,7 @@ impl System {
 
             self.comms.cpu_tx.send(self.cpu.clone()).unwrap();
         }
-    }
+    }*/
 }
 
 pub fn run_mutex(system: Arc<Mutex<System>>) {
@@ -181,6 +181,7 @@ pub fn run_mutex(system: Arc<Mutex<System>>) {
             }
         }
 
+        debug!("PC: {:#04x}", sys.cpu.rf.PC);
         //fetch the opcode
         let pc = sys.cpu.rf.PC;
         let op = sys.read(pc, 1).unwrap()[0];
@@ -1524,7 +1525,7 @@ impl System {
                         Ok(self.boot_rom[address as usize..=address as usize + len].to_vec())
                     } else {
                         return_vec.append(&mut self.boot_rom[..].to_vec());
-                        return_vec.append(&mut self.cart.read(0x0100, end_address).unwrap());
+                        return_vec.append(&mut self.cart.read(0x0100, end_address)?);
                         Ok(return_vec)
                     }
                 } else {
